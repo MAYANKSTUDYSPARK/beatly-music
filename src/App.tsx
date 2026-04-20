@@ -7,6 +7,7 @@ import { PlayerProvider } from "@/contexts/PlayerContext";
 import { LibraryProvider } from "@/contexts/LibraryContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { RecentTracker } from "@/components/player/RecentTracker";
+import { InstallPrompt } from "@/components/InstallPrompt";
 import Home from "./pages/Home";
 import Search from "./pages/Search";
 import Library from "./pages/Library";
@@ -26,6 +27,7 @@ const App = () => (
         <LibraryProvider>
           <PlayerProvider>
             <RecentTracker />
+            <InstallPrompt />
             <Routes>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<Home />} />
