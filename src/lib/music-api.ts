@@ -1,5 +1,5 @@
-// YouTube search via Piped public instances (no API key required).
-// Falls back across instances for resilience.
+// Beatly music API client — calls our edge function (fast, reliable, no CORS issues).
+import { supabase } from "@/integrations/supabase/client";
 
 export interface Track {
   id: string; // youtube video id
@@ -9,79 +9,67 @@ export interface Track {
   thumbnail: string;
 }
 
-const PIPED_INSTANCES = [
-  "https://pipedapi.kavin.rocks",
-  "https://pipedapi.adminforge.de",
-  "https://pipedapi.reallyaweso.me",
-  "https://api.piped.yt",
-];
-
-async function pipedFetch(path: string): Promise<any> {
-  let lastErr: unknown = null;
-  for (const base of PIPED_INSTANCES) {
-    try {
-      const res = await fetch(`${base}${path}`, {
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (e) {
-      lastErr = e;
-      continue;
-    }
-  }
-  throw lastErr ?? new Error("All Piped instances failed");
+export interface ArtistResult {
+  name: string;
+  description?: string;
+  thumbnail?: string;
+  topTracks: Track[];
 }
 
-function bestThumb(thumbnailUrl: string | undefined, videoId: string): string {
-  if (thumbnailUrl) return thumbnailUrl;
-  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+const BASE = `${SUPABASE_URL}/functions/v1/music-api`;
+
+async function call<T>(path: string, params?: Record<string, string>): Promise<T> {
+  const url = new URL(`${BASE}${path}`);
+  if (params) for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const res = await fetch(url.toString(), {
+    headers: {
+      apikey: ANON_KEY,
+      Authorization: `Bearer ${ANON_KEY}`,
+    },
+  });
+  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
+  return res.json();
 }
 
-function extractId(url: string | undefined): string {
-  if (!url) return "";
-  const m = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
-  return m ? m[1] : "";
+const cache = new Map<string, { ts: number; data: unknown }>();
+const TTL = 5 * 60 * 1000;
+async function cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.ts < TTL) return hit.data as T;
+  const data = await fn();
+  cache.set(key, { ts: Date.now(), data });
+  return data;
 }
 
-export async function searchTracks(query: string, limit = 25): Promise<Track[]> {
-  if (!query.trim()) return [];
-  const data = await pipedFetch(
-    `/search?q=${encodeURIComponent(query)}&filter=music_songs`
-  );
-  const items: any[] = Array.isArray(data?.items) ? data.items : [];
-  return items
-    .filter((it) => it.type === "stream" || it.url)
-    .slice(0, limit)
-    .map((it) => {
-      const id = extractId(it.url);
-      return {
-        id,
-        title: it.title ?? "Unknown",
-        artist: it.uploaderName ?? it.uploader ?? "Unknown Artist",
-        duration: typeof it.duration === "number" ? it.duration : 0,
-        thumbnail: bestThumb(it.thumbnail, id),
-      } as Track;
-    })
-    .filter((t) => t.id);
+export async function searchTracks(query: string, _limit = 30): Promise<Track[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const data = await cached(`search:${q}`, () => call<{ tracks: Track[] }>("/search", { q }));
+  return data.tracks ?? [];
 }
 
 export async function getTrending(region = "IN"): Promise<Track[]> {
+  const data = await cached(`trending:${region}`, () => call<{ tracks: Track[] }>("/trending", { region }));
+  return data.tracks ?? [];
+}
+
+export async function getArtist(name: string): Promise<ArtistResult> {
+  return cached(`artist:${name}`, () => call<ArtistResult>("/artist", { name }));
+}
+
+export async function getRelated(videoId: string): Promise<Track[]> {
+  const data = await call<{ tracks: Track[] }>("/related", { id: videoId });
+  return data.tracks ?? [];
+}
+
+export async function getStreamUrl(videoId: string): Promise<string | null> {
   try {
-    const data = await pipedFetch(`/trending?region=${region}`);
-    const items: any[] = Array.isArray(data) ? data : [];
-    return items.slice(0, 30).map((it) => {
-      const id = extractId(it.url);
-      return {
-        id,
-        title: it.title ?? "Unknown",
-        artist: it.uploaderName ?? "Unknown Artist",
-        duration: typeof it.duration === "number" ? it.duration : 0,
-        thumbnail: bestThumb(it.thumbnail, id),
-      } as Track;
-    }).filter((t) => t.id);
+    const data = await call<{ url: string }>("/stream", { id: videoId });
+    return data.url ?? null;
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -91,3 +79,6 @@ export function formatDuration(seconds: number): string {
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
+
+// Re-export for convenience
+export { supabase };
