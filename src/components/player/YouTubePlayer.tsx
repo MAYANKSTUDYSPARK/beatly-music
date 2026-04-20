@@ -4,13 +4,16 @@ import { usePlayer } from "@/contexts/PlayerContext";
 
 declare global {
   interface Window {
-    YT: typeof YT;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    YT: any;
     onYouTubeIframeAPIReady?: () => void;
   }
 }
 
-let apiPromise: Promise<typeof YT> | null = null;
-function loadYouTubeAPI(): Promise<typeof YT> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let apiPromise: Promise<any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function loadYouTubeAPI(): Promise<any> {
   if (apiPromise) return apiPromise;
   apiPromise = new Promise((resolve) => {
     if (window.YT && window.YT.Player) return resolve(window.YT);
