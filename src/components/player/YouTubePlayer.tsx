@@ -1,3 +1,4 @@
+/// <reference types="youtube" />
 import { useEffect, useRef } from "react";
 import { usePlayer } from "@/contexts/PlayerContext";
 

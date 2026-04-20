@@ -1,3 +1,4 @@
+/// <reference types="youtube" />
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Track } from "@/lib/music-api";
 
