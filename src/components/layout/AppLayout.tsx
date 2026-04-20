@@ -2,7 +2,6 @@ import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { PlayerBar } from "@/components/player/PlayerBar";
-import { YouTubePlayer } from "@/components/player/YouTubePlayer";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +22,6 @@ export function AppLayout() {
       </div>
       <MobileNav />
       <PlayerBar />
-      <YouTubePlayer />
     </div>
   );
 }
