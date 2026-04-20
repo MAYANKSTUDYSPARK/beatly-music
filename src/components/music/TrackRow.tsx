@@ -1,9 +1,12 @@
-import { Track, formatDuration } from "@/lib/music-api";
+import { Track, formatDuration, getStreamUrl } from "@/lib/music-api";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLibrary } from "@/contexts/LibraryContext";
-import { Heart, Play, Pause, MoreHorizontal } from "lucide-react";
+import { Heart, Play, Pause, MoreHorizontal, Download, ListPlus, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+import { useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,15 +23,47 @@ interface Props {
   showIndex?: boolean;
 }
 
+function primaryArtist(artist: string): string {
+  return artist.split(/[,&]|\sand\s|\sx\s/i)[0].trim();
+}
+
 export function TrackRow({ track, index, queue, showIndex }: Props) {
-  const { current, isPlaying, playTrack, togglePlay } = usePlayer();
+  const { current, isPlaying, playTrack, togglePlay, addToQueue } = usePlayer();
   const { isLiked, toggleLike, playlists, addToPlaylist, createPlaylist } = useLibrary();
+  const navigate = useNavigate();
+  const [downloading, setDownloading] = useState(false);
   const active = current?.id === track.id;
   const liked = isLiked(track.id);
 
   const onPlay = () => {
     if (active) togglePlay();
     else playTrack(track, queue);
+  };
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    toast("Preparing download…");
+    try {
+      const url = await getStreamUrl(track.id);
+      if (!url) {
+        toast("Stream unavailable");
+        return;
+      }
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `${track.artist} - ${track.title}.m4a`.replace(/[/\\?%*:|"<>]/g, "_");
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+      toast("Download started");
+    } catch {
+      toast("Download failed");
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -46,7 +81,12 @@ export function TrackRow({ track, index, queue, showIndex }: Props) {
         {showIndex && !active ? (
           <span className="text-sm text-muted-foreground group-hover:hidden">{(index ?? 0) + 1}</span>
         ) : null}
-        <img src={track.thumbnail} alt="" className={cn("h-10 w-10 rounded object-cover", showIndex && !active && "hidden group-hover:block")} loading="lazy" />
+        <img
+          src={track.thumbnail}
+          alt=""
+          loading="lazy"
+          className={cn("h-10 w-10 rounded object-cover", showIndex && !active && "hidden group-hover:block")}
+        />
         <span
           className={cn(
             "absolute inset-0 hidden items-center justify-center rounded bg-black/60 group-hover:flex",
@@ -61,12 +101,19 @@ export function TrackRow({ track, index, queue, showIndex }: Props) {
         </span>
       </button>
 
-      <button onClick={onPlay} className="min-w-0 text-left">
-        <div className={cn("truncate text-sm font-medium", active && "text-primary")}>
-          {track.title}
-        </div>
-        <div className="truncate text-xs text-muted-foreground">{track.artist}</div>
-      </button>
+      <div className="min-w-0">
+        <button onClick={onPlay} className="block max-w-full text-left">
+          <div className={cn("truncate text-sm font-medium", active && "text-primary")}>
+            {track.title}
+          </div>
+        </button>
+        <button
+          className="block max-w-full text-left"
+          onClick={() => navigate(`/artist/${encodeURIComponent(primaryArtist(track.artist))}`)}
+        >
+          <span className="truncate text-xs text-muted-foreground hover:underline">{track.artist}</span>
+        </button>
+      </div>
 
       <div className="hidden text-xs text-muted-foreground sm:block">
         {formatDuration(track.duration)}
@@ -84,11 +131,21 @@ export function TrackRow({ track, index, queue, showIndex }: Props) {
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="More">
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onClick={() => addToQueue(track)}>
+              <ListPlus className="h-4 w-4 mr-2" /> Add to queue
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleDownload} disabled={downloading}>
+              <Download className="h-4 w-4 mr-2" /> {downloading ? "Downloading…" : "Download"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate(`/artist/${encodeURIComponent(primaryArtist(track.artist))}`)}>
+              <User className="h-4 w-4 mr-2" /> Go to artist
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuLabel>Add to playlist</DropdownMenuLabel>
             <DropdownMenuItem
               onClick={() => {

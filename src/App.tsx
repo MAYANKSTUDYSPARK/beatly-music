@@ -7,11 +7,13 @@ import { PlayerProvider } from "@/contexts/PlayerContext";
 import { LibraryProvider } from "@/contexts/LibraryContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { RecentTracker } from "@/components/player/RecentTracker";
+import { InstallPrompt } from "@/components/InstallPrompt";
 import Home from "./pages/Home";
 import Search from "./pages/Search";
 import Library from "./pages/Library";
 import Liked from "./pages/Liked";
 import Playlist from "./pages/Playlist";
+import Artist from "./pages/Artist";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -25,6 +27,7 @@ const App = () => (
         <LibraryProvider>
           <PlayerProvider>
             <RecentTracker />
+            <InstallPrompt />
             <Routes>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<Home />} />
@@ -32,6 +35,7 @@ const App = () => (
                 <Route path="/library" element={<Library />} />
                 <Route path="/liked" element={<Liked />} />
                 <Route path="/playlist/:id" element={<Playlist />} />
+                <Route path="/artist/:name" element={<Artist />} />
               </Route>
               <Route path="/index" element={<Navigate to="/" replace />} />
               <Route path="*" element={<NotFound />} />
