@@ -222,30 +222,42 @@ async function getRelated(videoId: string): Promise<Track[]> {
 
 // Try multiple YouTube clients to extract a direct streamable audio URL.
 // Different clients have different reliability — we fall back through them.
+// TVHTML5_SIMPLY_EMBEDDED_PLAYER bypasses login on data-center IPs (works for embeddable videos).
+// IOS client is the second-best fallback. We skip ANDROID/WEB which now require PoToken.
 const STREAM_CLIENTS = [
+  {
+    name: "TV_EMBED",
+    key: INNERTUBE_KEY,
+    ua: "Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
+    client: {
+      clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+      clientVersion: "2.0",
+      clientScreen: "EMBED",
+      hl: "en",
+      gl: "US",
+    },
+    extra: { thirdParty: { embedUrl: "https://www.youtube.com" } },
+  },
   {
     name: "IOS",
     key: "AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc",
     ua: "com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
-    client: { clientName: "IOS", clientVersion: "19.09.3", deviceMake: "Apple", deviceModel: "iPhone14,3", hl: "en", gl: "US" },
+    client: {
+      clientName: "IOS",
+      clientVersion: "19.09.3",
+      deviceMake: "Apple",
+      deviceModel: "iPhone14,3",
+      osName: "iPhone",
+      osVersion: "15.6.0.19G71",
+      hl: "en",
+      gl: "US",
+    },
   },
   {
     name: "ANDROID_MUSIC",
     key: "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEo8AI",
     ua: "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11) gzip",
     client: { clientName: "ANDROID_MUSIC", clientVersion: "6.42.52", androidSdkVersion: 30, hl: "en", gl: "US" },
-  },
-  {
-    name: "ANDROID",
-    key: "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w",
-    ua: "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
-    client: { clientName: "ANDROID", clientVersion: "19.09.37", androidSdkVersion: 30, hl: "en", gl: "US" },
-  },
-  {
-    name: "WEB",
-    key: INNERTUBE_KEY,
-    ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-    client: { clientName: "WEB", clientVersion: "2.20240605.00.00", hl: "en", gl: "US" },
   },
 ];
 
