@@ -273,7 +273,7 @@ async function tryClient(videoId: string, c: typeof STREAM_CLIENTS[number]): Pro
       },
       body: JSON.stringify({
         videoId,
-        context: { client: c.client },
+        context: { client: c.client, ...(c.extra ?? {}) },
         playbackContext: { contentPlaybackContext: { html5Preference: "HTML5_PREF_WANTS" } },
         contentCheckOk: true,
         racyCheckOk: true,
