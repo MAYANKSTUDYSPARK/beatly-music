@@ -305,7 +305,49 @@ async function tryClient(videoId: string, c: typeof STREAM_CLIENTS[number]): Pro
   }
 }
 
+// Public Piped/Invidious instances that proxy YouTube and bypass data-center blocks.
+// These return JSON with audio stream URLs we can serve directly.
+const PIPED_INSTANCES = [
+  "https://pipedapi.kavin.rocks",
+  "https://pipedapi.adminforge.de",
+  "https://api.piped.private.coffee",
+  "https://pipedapi.reallyaweso.me",
+  "https://pipedapi.r4fo.com",
+];
+
+async function getStreamFromPiped(videoId: string): Promise<string | null> {
+  for (const base of PIPED_INSTANCES) {
+    try {
+      const res = await fetch(`${base}/streams/${videoId}`, {
+        headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
+        signal: AbortSignal.timeout(4500),
+      });
+      if (!res.ok) {
+        console.log(`[piped] ${base} ${videoId}: ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const audios: any[] = data?.audioStreams ?? [];
+      const best = audios
+        .filter((a) => a.url)
+        .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+      if (best?.url) {
+        console.log(`[piped] hit ${base} ${videoId}`);
+        return best.url;
+      }
+    } catch (e) {
+      console.log(`[piped] ${base} threw:`, e instanceof Error ? e.message : e);
+    }
+  }
+  return null;
+}
+
 async function getStreamUrl(videoId: string): Promise<string | null> {
+  // Try Piped first (most reliable on data-center IPs).
+  const piped = await getStreamFromPiped(videoId);
+  if (piped) return piped;
+  // Fall back to direct InnerTube (works for some unrestricted videos).
   for (const c of STREAM_CLIENTS) {
     const url = await tryClient(videoId, c);
     if (url) return url;
