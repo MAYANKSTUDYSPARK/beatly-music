@@ -220,37 +220,78 @@ async function getRelated(videoId: string): Promise<Track[]> {
   return tracks.slice(0, 25);
 }
 
-// Get a direct streamable audio URL using the player endpoint with ANDROID client (returns unsigned URLs)
-async function getStreamUrl(videoId: string): Promise<string | null> {
-  const body = {
-    videoId,
-    context: {
-      client: {
-        clientName: "ANDROID",
-        clientVersion: "19.09.37",
-        androidSdkVersion: 30,
-        hl: "en",
-        gl: "US",
+// Try multiple YouTube clients to extract a direct streamable audio URL.
+// Different clients have different reliability — we fall back through them.
+const STREAM_CLIENTS = [
+  {
+    name: "IOS",
+    key: "AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc",
+    ua: "com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
+    client: { clientName: "IOS", clientVersion: "19.09.3", deviceMake: "Apple", deviceModel: "iPhone14,3", hl: "en", gl: "US" },
+  },
+  {
+    name: "ANDROID_MUSIC",
+    key: "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEo8AI",
+    ua: "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11) gzip",
+    client: { clientName: "ANDROID_MUSIC", clientVersion: "6.42.52", androidSdkVersion: 30, hl: "en", gl: "US" },
+  },
+  {
+    name: "ANDROID",
+    key: "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w",
+    ua: "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+    client: { clientName: "ANDROID", clientVersion: "19.09.37", androidSdkVersion: 30, hl: "en", gl: "US" },
+  },
+  {
+    name: "WEB",
+    key: INNERTUBE_KEY,
+    ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    client: { clientName: "WEB", clientVersion: "2.20240605.00.00", hl: "en", gl: "US" },
+  },
+];
+
+async function tryClient(videoId: string, c: typeof STREAM_CLIENTS[number]): Promise<string | null> {
+  try {
+    const res = await fetch(`${YT_BASE}/player?key=${c.key}&prettyPrint=false`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": c.ua,
+        "X-Goog-Api-Format-Version": "2",
+        Origin: "https://www.youtube.com",
       },
-    },
-  };
-  const res = await fetch(`${YT_BASE}/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
-      "X-Goog-Api-Format-Version": "2",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const formats: any[] = data?.streamingData?.adaptiveFormats ?? [];
-  const audio = formats
-    .filter((f) => (f.mimeType ?? "").startsWith("audio/"))
-    .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
-  return audio?.url ?? null;
+      body: JSON.stringify({
+        videoId,
+        context: { client: c.client },
+        playbackContext: { contentPlaybackContext: { html5Preference: "HTML5_PREF_WANTS" } },
+        contentCheckOk: true,
+        racyCheckOk: true,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const status = data?.playabilityStatus?.status;
+    if (status && status !== "OK") {
+      console.log(`[stream] ${c.name} ${videoId}: ${status}`);
+      return null;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const formats: any[] = data?.streamingData?.adaptiveFormats ?? [];
+    const audio = formats
+      .filter((f) => (f.mimeType ?? "").startsWith("audio/") && f.url) // require unsigned url
+      .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+    return audio?.url ?? null;
+  } catch (e) {
+    console.log(`[stream] ${c.name} threw:`, e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+async function getStreamUrl(videoId: string): Promise<string | null> {
+  for (const c of STREAM_CLIENTS) {
+    const url = await tryClient(videoId, c);
+    if (url) return url;
+  }
+  return null;
 }
 
 Deno.serve(async (req) => {
