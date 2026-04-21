@@ -2,6 +2,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Track } from "@/lib/music-api";
 import { getStreamUrl, getRelated } from "@/lib/music-api";
+import { useAuth } from "./AuthContext";
+import { useNotifications } from "./NotificationsContext";
 
 type RepeatMode = "off" | "all" | "one";
 
@@ -11,7 +13,7 @@ interface PlayerContextValue {
   index: number;
   isPlaying: boolean;
   isLoading: boolean;
-  progress: number; // 0-1
+  progress: number;
   currentTime: number;
   duration: number;
   volume: number;
@@ -33,6 +35,8 @@ interface PlayerContextValue {
 const PlayerContext = createContext<PlayerContextValue | null>(null);
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
+  const { requireAuth, user } = useAuth();
+  const { push: pushNotification } = useNotifications();
   const [queue, setQueue] = useState<Track[]>([]);
   const [index, setIndex] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -48,6 +52,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [repeat, setRepeat] = useState<RepeatMode>("off");
   const audioRef = useRef<HTMLAudioElement>(null);
   const loadingIdRef = useRef<string | null>(null);
+  const consecutiveFailuresRef = useRef(0);
+  const lastNotifiedIdRef = useRef<string | null>(null);
 
   const current = index >= 0 && index < queue.length ? queue[index] : null;
 
@@ -62,15 +68,37 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setDuration(0);
     getStreamUrl(current.id).then((url) => {
       if (cancelled || loadingIdRef.current !== current.id) return;
-      setStreamUrl(url);
       setIsLoading(false);
+      if (!url) {
+        consecutiveFailuresRef.current += 1;
+        if (consecutiveFailuresRef.current < 5) {
+          // Auto-skip up to 4 unavailable tracks before giving up.
+          setTimeout(() => {
+            if (!cancelled) setIndex((i) => Math.min(i + 1, queue.length - 1));
+          }, 300);
+        }
+      } else {
+        consecutiveFailuresRef.current = 0;
+        setStreamUrl(url);
+      }
     }).catch(() => {
       if (!cancelled) setIsLoading(false);
     });
     return () => { cancelled = true; };
-  }, [current]);
+  }, [current, queue.length]);
 
-  // Auto-extend queue with related tracks when nearing end
+  // Notify on track change
+  useEffect(() => {
+    if (!current || lastNotifiedIdRef.current === current.id) return;
+    lastNotifiedIdRef.current = current.id;
+    pushNotification({
+      title: `Now playing: ${current.title}`,
+      body: current.artist,
+      image: current.thumbnail,
+    });
+  }, [current, pushNotification]);
+
+  // Auto-extend queue with related tracks
   useEffect(() => {
     if (!current || queue.length - index > 3) return;
     let cancelled = false;
@@ -86,6 +114,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [current, index, queue.length]);
 
   const playTrack = useCallback((track: Track, newQueue?: Track[]) => {
+    // Require login to play.
+    if (!requireAuth("Sign in to play music free 🎵")) return;
+    consecutiveFailuresRef.current = 0;
     if (newQueue && newQueue.length) {
       const i = newQueue.findIndex((t) => t.id === track.id);
       setQueue(newQueue);
@@ -103,7 +134,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       });
     }
     setIsPlaying(true);
-  }, []);
+  }, [requireAuth]);
 
   const addToQueue = useCallback((track: Track) => {
     setQueue((q) => (q.some((t) => t.id === track.id) ? q : [...q, track]));
@@ -153,7 +184,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
   const cycleRepeat = useCallback(() => setRepeat((r) => r === "off" ? "all" : r === "all" ? "one" : "off"), []);
 
-  // Handle ended
   const handleEnded = useCallback(() => {
     if (repeat === "one" && audioRef.current) {
       audioRef.current.currentTime = 0;
@@ -163,19 +193,31 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [repeat, next]);
 
-  // Media Session metadata
+  // Media Session metadata (lock-screen controls)
   useEffect(() => {
     if (!current || !("mediaSession" in navigator)) return;
     navigator.mediaSession.metadata = new MediaMetadata({
       title: current.title,
       artist: current.artist,
-      artwork: [{ src: current.thumbnail, sizes: "512x512", type: "image/jpeg" }],
+      artwork: [
+        { src: current.thumbnail, sizes: "96x96", type: "image/jpeg" },
+        { src: current.thumbnail, sizes: "256x256", type: "image/jpeg" },
+        { src: current.thumbnail, sizes: "512x512", type: "image/jpeg" },
+      ],
     });
     navigator.mediaSession.setActionHandler("play", () => audioRef.current?.play());
     navigator.mediaSession.setActionHandler("pause", () => audioRef.current?.pause());
     navigator.mediaSession.setActionHandler("nexttrack", next);
     navigator.mediaSession.setActionHandler("previoustrack", prev);
   }, [current, next, prev]);
+
+  // Pause playback if user signs out mid-session.
+  useEffect(() => {
+    if (!user && audioRef.current) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    }
+  }, [user]);
 
   const progress = duration ? currentTime / duration : 0;
 
@@ -189,7 +231,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   return (
     <PlayerContext.Provider value={value}>
       {children}
-      {/* Hidden audio element controlled by the context */}
       <audio
         ref={audioRef}
         src={streamUrl ?? undefined}

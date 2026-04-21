@@ -87,6 +87,20 @@
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Safe-area padding for iOS notch / Android nav */
+  @supports (padding: max(0px)) {
+    body {
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+  }
+
+  /* Larger tap targets on touch devices */
+  @media (hover: none) and (pointer: coarse) {
+    button[role="slider"] { touch-action: none; }
   }
 
   /* Scrollbar styling */
