@@ -330,8 +330,8 @@ Deno.serve(async (req) => {
       const id = url.searchParams.get("id") ?? "";
       if (!id) return err("id required", 400);
       const streamUrl = await getStreamUrl(id);
-      if (!streamUrl) return err("Stream not available", 404);
-      return json({ url: streamUrl });
+      // Always return 200 — null url signals "unavailable" without a noisy 404.
+      return json({ url: streamUrl, available: !!streamUrl });
     }
     return err("Not found", 404);
   } catch (e) {
