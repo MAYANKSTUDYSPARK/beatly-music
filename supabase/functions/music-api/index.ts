@@ -220,37 +220,139 @@ async function getRelated(videoId: string): Promise<Track[]> {
   return tracks.slice(0, 25);
 }
 
-// Get a direct streamable audio URL using the player endpoint with ANDROID client (returns unsigned URLs)
-async function getStreamUrl(videoId: string): Promise<string | null> {
-  const body = {
-    videoId,
-    context: {
-      client: {
-        clientName: "ANDROID",
-        clientVersion: "19.09.37",
-        androidSdkVersion: 30,
-        hl: "en",
-        gl: "US",
+// Try multiple YouTube clients to extract a direct streamable audio URL.
+// Different clients have different reliability — we fall back through them.
+// TVHTML5_SIMPLY_EMBEDDED_PLAYER bypasses login on data-center IPs (works for embeddable videos).
+// IOS client is the second-best fallback. We skip ANDROID/WEB which now require PoToken.
+interface StreamClient {
+  name: string;
+  key: string;
+  ua: string;
+  client: Record<string, unknown>;
+  extra?: Record<string, unknown>;
+}
+const STREAM_CLIENTS: StreamClient[] = [
+  {
+    name: "TV_EMBED",
+    key: INNERTUBE_KEY,
+    ua: "Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
+    client: {
+      clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+      clientVersion: "2.0",
+      clientScreen: "EMBED",
+      hl: "en",
+      gl: "US",
+    },
+    extra: { thirdParty: { embedUrl: "https://www.youtube.com" } },
+  },
+  {
+    name: "IOS",
+    key: "AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc",
+    ua: "com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)",
+    client: {
+      clientName: "IOS",
+      clientVersion: "19.09.3",
+      deviceMake: "Apple",
+      deviceModel: "iPhone14,3",
+      osName: "iPhone",
+      osVersion: "15.6.0.19G71",
+      hl: "en",
+      gl: "US",
+    },
+  },
+  {
+    name: "ANDROID_MUSIC",
+    key: "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEo8AI",
+    ua: "com.google.android.apps.youtube.music/6.42.52 (Linux; U; Android 11) gzip",
+    client: { clientName: "ANDROID_MUSIC", clientVersion: "6.42.52", androidSdkVersion: 30, hl: "en", gl: "US" },
+  },
+];
+
+async function tryClient(videoId: string, c: typeof STREAM_CLIENTS[number]): Promise<string | null> {
+  try {
+    const res = await fetch(`${YT_BASE}/player?key=${c.key}&prettyPrint=false`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": c.ua,
+        "X-Goog-Api-Format-Version": "2",
+        Origin: "https://www.youtube.com",
       },
-    },
-  };
-  const res = await fetch(`${YT_BASE}/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
-      "X-Goog-Api-Format-Version": "2",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const formats: any[] = data?.streamingData?.adaptiveFormats ?? [];
-  const audio = formats
-    .filter((f) => (f.mimeType ?? "").startsWith("audio/"))
-    .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
-  return audio?.url ?? null;
+      body: JSON.stringify({
+        videoId,
+        context: { client: c.client, ...(c.extra ?? {}) },
+        playbackContext: { contentPlaybackContext: { html5Preference: "HTML5_PREF_WANTS" } },
+        contentCheckOk: true,
+        racyCheckOk: true,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const status = data?.playabilityStatus?.status;
+    if (status && status !== "OK") {
+      console.log(`[stream] ${c.name} ${videoId}: ${status}`);
+      return null;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const formats: any[] = data?.streamingData?.adaptiveFormats ?? [];
+    const audio = formats
+      .filter((f) => (f.mimeType ?? "").startsWith("audio/") && f.url) // require unsigned url
+      .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+    return audio?.url ?? null;
+  } catch (e) {
+    console.log(`[stream] ${c.name} threw:`, e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+// Public Piped/Invidious instances that proxy YouTube and bypass data-center blocks.
+// These return JSON with audio stream URLs we can serve directly.
+const PIPED_INSTANCES = [
+  "https://pipedapi.kavin.rocks",
+  "https://pipedapi.adminforge.de",
+  "https://api.piped.private.coffee",
+  "https://pipedapi.reallyaweso.me",
+  "https://pipedapi.r4fo.com",
+];
+
+async function getStreamFromPiped(videoId: string): Promise<string | null> {
+  for (const base of PIPED_INSTANCES) {
+    try {
+      const res = await fetch(`${base}/streams/${videoId}`, {
+        headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
+        signal: AbortSignal.timeout(4500),
+      });
+      if (!res.ok) {
+        console.log(`[piped] ${base} ${videoId}: ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const audios: any[] = data?.audioStreams ?? [];
+      const best = audios
+        .filter((a) => a.url)
+        .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
+      if (best?.url) {
+        console.log(`[piped] hit ${base} ${videoId}`);
+        return best.url;
+      }
+    } catch (e) {
+      console.log(`[piped] ${base} threw:`, e instanceof Error ? e.message : e);
+    }
+  }
+  return null;
+}
+
+async function getStreamUrl(videoId: string): Promise<string | null> {
+  // Try Piped first (most reliable on data-center IPs).
+  const piped = await getStreamFromPiped(videoId);
+  if (piped) return piped;
+  // Fall back to direct InnerTube (works for some unrestricted videos).
+  for (const c of STREAM_CLIENTS) {
+    const url = await tryClient(videoId, c);
+    if (url) return url;
+  }
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -289,8 +391,8 @@ Deno.serve(async (req) => {
       const id = url.searchParams.get("id") ?? "";
       if (!id) return err("id required", 400);
       const streamUrl = await getStreamUrl(id);
-      if (!streamUrl) return err("Stream not available", 404);
-      return json({ url: streamUrl });
+      // Always return 200 — null url signals "unavailable" without a noisy 404.
+      return json({ url: streamUrl, available: !!streamUrl });
     }
     return err("Not found", 404);
   } catch (e) {
