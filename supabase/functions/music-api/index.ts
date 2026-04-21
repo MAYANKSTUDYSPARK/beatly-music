@@ -224,7 +224,14 @@ async function getRelated(videoId: string): Promise<Track[]> {
 // Different clients have different reliability — we fall back through them.
 // TVHTML5_SIMPLY_EMBEDDED_PLAYER bypasses login on data-center IPs (works for embeddable videos).
 // IOS client is the second-best fallback. We skip ANDROID/WEB which now require PoToken.
-const STREAM_CLIENTS = [
+interface StreamClient {
+  name: string;
+  key: string;
+  ua: string;
+  client: Record<string, unknown>;
+  extra?: Record<string, unknown>;
+}
+const STREAM_CLIENTS: StreamClient[] = [
   {
     name: "TV_EMBED",
     key: INNERTUBE_KEY,
