@@ -2,7 +2,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Track } from "@/lib/music-api";
 import { getStreamUrl, getRelated } from "@/lib/music-api";
-import { useAuth } from "./AuthContext";
 import { useNotifications } from "./NotificationsContext";
 
 type RepeatMode = "off" | "all" | "one";
@@ -35,7 +34,6 @@ interface PlayerContextValue {
 const PlayerContext = createContext<PlayerContextValue | null>(null);
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
-  const { requireAuth, user } = useAuth();
   const { push: pushNotification } = useNotifications();
   const [queue, setQueue] = useState<Track[]>([]);
   const [index, setIndex] = useState(-1);
@@ -66,13 +64,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setStreamUrl(null);
     setCurrentTime(0);
     setDuration(0);
+    // Podcast / direct stream override — no need to call edge function.
+    if (current.streamOverride) {
+      setIsLoading(false);
+      setStreamUrl(current.streamOverride);
+      consecutiveFailuresRef.current = 0;
+      return;
+    }
     getStreamUrl(current.id).then((url) => {
       if (cancelled || loadingIdRef.current !== current.id) return;
       setIsLoading(false);
       if (!url) {
         consecutiveFailuresRef.current += 1;
         if (consecutiveFailuresRef.current < 5) {
-          // Auto-skip up to 4 unavailable tracks before giving up.
           setTimeout(() => {
             if (!cancelled) setIndex((i) => Math.min(i + 1, queue.length - 1));
           }, 300);
@@ -114,8 +118,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [current, index, queue.length]);
 
   const playTrack = useCallback((track: Track, newQueue?: Track[]) => {
-    // Require login to play.
-    if (!requireAuth("Sign in to play music free 🎵")) return;
     consecutiveFailuresRef.current = 0;
     if (newQueue && newQueue.length) {
       const i = newQueue.findIndex((t) => t.id === track.id);
@@ -134,7 +136,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       });
     }
     setIsPlaying(true);
-  }, [requireAuth]);
+  }, []);
 
   const addToQueue = useCallback((track: Track) => {
     setQueue((q) => (q.some((t) => t.id === track.id) ? q : [...q, track]));
@@ -210,14 +212,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     navigator.mediaSession.setActionHandler("nexttrack", next);
     navigator.mediaSession.setActionHandler("previoustrack", prev);
   }, [current, next, prev]);
-
-  // Pause playback if user signs out mid-session.
-  useEffect(() => {
-    if (!user && audioRef.current) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    }
-  }, [user]);
 
   const progress = duration ? currentTime / duration : 0;
 

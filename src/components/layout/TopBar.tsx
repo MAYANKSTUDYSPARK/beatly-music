@@ -1,12 +1,6 @@
-import { Bell, LogOut, User as UserIcon, Download } from "lucide-react";
+import { Bell, Download, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/contexts/NotificationsContext";
 import { useState } from "react";
 import logo from "@/assets/beatly-logo.png";
@@ -15,15 +9,9 @@ import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 
 export function TopBar() {
-  const { user, signOut, requireAuth } = useAuth();
-  const { notifications, unreadCount, markAllRead, installPromptEvent, triggerInstall, canInstall } = useNotifications();
+  const { notifications, unreadCount, markAllRead, triggerInstall, canInstall } = useNotifications();
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-
-  const initials =
-    (user?.user_metadata?.full_name as string | undefined)?.split(" ").map((n) => n[0]).slice(0, 2).join("") ||
-    user?.email?.[0]?.toUpperCase() || "?";
-  const avatarUrl = (user?.user_metadata?.avatar_url as string | undefined) ?? undefined;
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border/40 bg-background/80 px-3 py-2 backdrop-blur-xl sm:px-4">
@@ -37,6 +25,16 @@ export function TopBar() {
       </button>
 
       <div className="flex items-center gap-1 sm:gap-2">
+        <a
+          href="https://telegram.me/scholarversepro_network"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-[#229ED9] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-smooth"
+          aria-label="Join Telegram"
+        >
+          <Send className="h-3.5 w-3.5 fill-current" /> Telegram
+        </a>
+
         {canInstall && (
           <Button
             variant="outline"
@@ -44,7 +42,7 @@ export function TopBar() {
             onClick={triggerInstall}
             className="hidden sm:inline-flex gap-1 border-primary/40 text-primary hover:bg-primary/10"
           >
-            <Download className="h-4 w-4" /> Install App
+            <Download className="h-4 w-4" /> Install
           </Button>
         )}
         {canInstall && (
@@ -108,47 +106,6 @@ export function TopBar() {
             </div>
           </PopoverContent>
         </Popover>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              className="flex h-9 w-9 items-center justify-center rounded-full hover:opacity-80 transition-smooth"
-              aria-label="Account"
-            >
-              <Avatar className="h-9 w-9 border border-border">
-                <AvatarImage src={avatarUrl} alt={user?.email ?? ""} />
-                <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">
-                  {user ? initials : <UserIcon className="h-4 w-4" />}
-                </AvatarFallback>
-              </Avatar>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 bg-popover border-border">
-            {user ? (
-              <>
-                <DropdownMenuLabel className="font-normal">
-                  <div className="text-xs text-muted-foreground">Signed in as</div>
-                  <div className="truncate text-sm font-medium">{user.email}</div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => navigate("/library")}>
-                  Your Library
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate("/liked")}>
-                  Liked Songs
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={signOut} className="text-destructive">
-                  <LogOut className="mr-2 h-4 w-4" /> Sign out
-                </DropdownMenuItem>
-              </>
-            ) : (
-              <DropdownMenuItem onClick={() => requireAuth("Sign in to access your library")}>
-                Sign in with Google
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
     </header>
   );

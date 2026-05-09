@@ -1,13 +1,13 @@
 import { NavLink } from "react-router-dom";
-import { Home, Search, Library, Heart } from "lucide-react";
+import { Home, Search, Library, Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePlayer } from "@/contexts/PlayerContext";
 
 const items = [
   { to: "/", label: "Home", icon: Home, end: true },
   { to: "/search", label: "Search", icon: Search },
+  { to: "/podcasts", label: "Podcasts", icon: Mic },
   { to: "/library", label: "Library", icon: Library },
-  { to: "/liked", label: "Liked", icon: Heart },
 ];
 
 export function MobileNav() {

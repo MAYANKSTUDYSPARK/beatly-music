@@ -2,11 +2,12 @@
 import { supabase } from "@/integrations/supabase/client";
 
 export interface Track {
-  id: string; // youtube video id
+  id: string; // youtube video id, or "pod-<id>" for podcasts
   title: string;
   artist: string;
   duration: number; // seconds
   thumbnail: string;
+  streamOverride?: string; // direct audio URL (used for podcasts)
 }
 
 export interface ArtistResult {

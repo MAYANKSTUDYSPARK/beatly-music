@@ -46,31 +46,52 @@ export function Lyrics() {
     setPlain(null);
     setActiveIdx(-1);
 
-    const params = new URLSearchParams({
-      track_name: current.title.replace(/\s*\(.*?\)\s*/g, "").trim(),
-      artist_name: current.artist.split(/[,&]/)[0].trim(),
-      duration: String(current.duration || ""),
-    });
+    const cleanTitle = current.title
+      .replace(/\([^)]*\)/g, "")
+      .replace(/\[[^\]]*\]/g, "")
+      .replace(/\b(official|video|music|audio|lyrics?|hd|4k|full song|song|mv|m\/v)\b/gi, "")
+      .replace(/\s*[-|—–]\s*.*$/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const cleanArtist = current.artist
+      .split(/[,&·•|]/)[0]
+      .replace(/\b(vevo|topic|official)\b/gi, "")
+      .trim();
 
-    fetch(`https://lrclib.net/api/get?${params}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: LyricsResponse | null) => {
-        if (cancelled) return;
-        if (!data) {
-          setLoading(false);
-          return;
-        }
-        if (data.syncedLyrics) {
-          setSynced(parseLrc(data.syncedLyrics));
-        } else if (data.plainLyrics) {
-          setPlain(data.plainLyrics);
-        }
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
-      });
+    const tryFetch = async () => {
+      // 1. Exact get with cleaned title + artist + duration
+      const tryGet = async (track: string, artist: string, dur?: number) => {
+        const p = new URLSearchParams({ track_name: track, artist_name: artist });
+        if (dur) p.set("duration", String(dur));
+        const r = await fetch(`https://lrclib.net/api/get?${p}`);
+        if (!r.ok) return null;
+        return r.json() as Promise<LyricsResponse>;
+      };
+      const trySearch = async (q: string) => {
+        const r = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`);
+        if (!r.ok) return null;
+        const arr = (await r.json()) as LyricsResponse[];
+        return arr.find((x) => x.syncedLyrics) || arr[0] || null;
+      };
 
+      let data: LyricsResponse | null = null;
+      data = await tryGet(cleanTitle, cleanArtist, current.duration).catch(() => null);
+      if (!data?.syncedLyrics && !data?.plainLyrics) {
+        data = await tryGet(cleanTitle, cleanArtist).catch(() => null);
+      }
+      if (!data?.syncedLyrics && !data?.plainLyrics) {
+        data = await trySearch(`${cleanTitle} ${cleanArtist}`).catch(() => null);
+      }
+      if (!data?.syncedLyrics && !data?.plainLyrics) {
+        data = await trySearch(cleanTitle).catch(() => null);
+      }
+      if (cancelled) return;
+      if (data?.syncedLyrics) setSynced(parseLrc(data.syncedLyrics));
+      else if (data?.plainLyrics) setPlain(data.plainLyrics);
+      setLoading(false);
+    };
+
+    tryFetch().catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [current]);
 
