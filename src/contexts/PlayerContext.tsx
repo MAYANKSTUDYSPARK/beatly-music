@@ -2,7 +2,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Track } from "@/lib/music-api";
 import { getStreamUrl, getRelated } from "@/lib/music-api";
-import { useAuth } from "./AuthContext";
 import { useNotifications } from "./NotificationsContext";
 
 type RepeatMode = "off" | "all" | "one";
@@ -35,7 +34,6 @@ interface PlayerContextValue {
 const PlayerContext = createContext<PlayerContextValue | null>(null);
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
-  const { requireAuth, user } = useAuth();
   const { push: pushNotification } = useNotifications();
   const [queue, setQueue] = useState<Track[]>([]);
   const [index, setIndex] = useState(-1);
@@ -114,8 +112,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [current, index, queue.length]);
 
   const playTrack = useCallback((track: Track, newQueue?: Track[]) => {
-    // Require login to play.
-    if (!requireAuth("Sign in to play music free 🎵")) return;
     consecutiveFailuresRef.current = 0;
     if (newQueue && newQueue.length) {
       const i = newQueue.findIndex((t) => t.id === track.id);
@@ -134,7 +130,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       });
     }
     setIsPlaying(true);
-  }, [requireAuth]);
+  }, []);
 
   const addToQueue = useCallback((track: Track) => {
     setQueue((q) => (q.some((t) => t.id === track.id) ? q : [...q, track]));
@@ -210,14 +206,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     navigator.mediaSession.setActionHandler("nexttrack", next);
     navigator.mediaSession.setActionHandler("previoustrack", prev);
   }, [current, next, prev]);
-
-  // Pause playback if user signs out mid-session.
-  useEffect(() => {
-    if (!user && audioRef.current) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    }
-  }, [user]);
 
   const progress = duration ? currentTime / duration : 0;
 
