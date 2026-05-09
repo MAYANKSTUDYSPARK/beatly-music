@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Home, Search, Library, Heart, Music2, Plus } from "lucide-react";
+import { Home, Search, Library, Heart, Music2, Plus, Mic } from "lucide-react";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 const navItems = [
   { to: "/", label: "Home", icon: Home, end: true },
   { to: "/search", label: "Search", icon: Search },
+  { to: "/podcasts", label: "Podcasts", icon: Mic },
   { to: "/library", label: "Library", icon: Library },
 ];
 
