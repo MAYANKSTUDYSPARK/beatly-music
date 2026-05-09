@@ -56,20 +56,9 @@ export default function Podcasts() {
       artist: ep.artistName || ep.collectionName,
       duration: Math.round((ep.trackTimeMillis || 0) / 1000),
       thumbnail: ep.artworkUrl600 || ep.artworkUrl160 || "",
+      streamOverride: ep.episodeUrl,
     };
-    // Inject the audio URL directly via a custom track id mapping
-    // We'll use the audio URL as id prefix decoded by player; simplest approach:
-    // open the audio in a new tab fallback if our player can't stream it.
-    (track as Track & { streamOverride?: string }).streamOverride = ep.episodeUrl;
     playTrack(track);
-    // Backup: also set audio src directly so it plays immediately
-    setTimeout(() => {
-      const audio = document.querySelector("audio");
-      if (audio && ep.episodeUrl) {
-        audio.src = ep.episodeUrl;
-        audio.play().catch(() => undefined);
-      }
-    }, 100);
   };
 
   return (

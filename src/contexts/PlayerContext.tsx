@@ -64,13 +64,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setStreamUrl(null);
     setCurrentTime(0);
     setDuration(0);
+    // Podcast / direct stream override — no need to call edge function.
+    if (current.streamOverride) {
+      setIsLoading(false);
+      setStreamUrl(current.streamOverride);
+      consecutiveFailuresRef.current = 0;
+      return;
+    }
     getStreamUrl(current.id).then((url) => {
       if (cancelled || loadingIdRef.current !== current.id) return;
       setIsLoading(false);
       if (!url) {
         consecutiveFailuresRef.current += 1;
         if (consecutiveFailuresRef.current < 5) {
-          // Auto-skip up to 4 unavailable tracks before giving up.
           setTimeout(() => {
             if (!cancelled) setIndex((i) => Math.min(i + 1, queue.length - 1));
           }, 300);
