@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import {
   Play, Pause, SkipBack, SkipForward, Heart,
-  Shuffle, Repeat, Repeat1, ChevronDown, Download, Loader2, Mic2, Disc3,
+  Shuffle, Repeat, Repeat1, ChevronDown, Download, Loader2, Mic2, Disc3, WifiOff, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/music-api";
@@ -14,6 +14,7 @@ import { Lyrics } from "./Lyrics";
 import { SleepTimer } from "./SleepTimer";
 import { Equalizer } from "./Equalizer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useDownloads } from "@/contexts/DownloadsContext";
 
 interface Props {
   onClose: () => void;
