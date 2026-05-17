@@ -27,11 +27,14 @@ export function NowPlaying({ onClose }: Props) {
     shuffle, toggleShuffle, repeat, cycleRepeat, streamUrl,
   } = usePlayer();
   const { isLiked, toggleLike } = useLibrary();
+  const { isDownloaded, downloadTrack, inProgress } = useDownloads();
   const [downloading, setDownloading] = useState(false);
   const [tab, setTab] = useState<"cover" | "lyrics">("cover");
 
   if (!current) return null;
   const liked = isLiked(current.id);
+  const saved = isDownloaded(current.id);
+  const offlineProgress = inProgress[current.id];
 
   const handleDownload = async () => {
     if (!streamUrl) {
