@@ -23,13 +23,17 @@ const TOPICS = [
   "Education", "Startup India",
 ];
 
+const podCache = new Map<string, { ts: number; data: Episode[] }>();
 async function fetchEpisodes(term: string): Promise<Episode[]> {
-  // country=IN biases iTunes to Indian podcasts; limit 50 for variety.
+  const hit = podCache.get(term);
+  if (hit && Date.now() - hit.ts < 10 * 60 * 1000) return hit.data;
   const url = `https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&country=IN&limit=50&term=${encodeURIComponent(term)}`;
   const res = await fetch(url);
   if (!res.ok) return [];
   const data = await res.json();
-  return data.results || [];
+  const list = data.results || [];
+  podCache.set(term, { ts: Date.now(), data: list });
+  return list;
 }
 
 export default function Podcasts() {
