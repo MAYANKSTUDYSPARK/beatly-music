@@ -16,7 +16,7 @@ export function MobileNav() {
   return (
     <nav
       className={cn(
-        "fixed inset-x-0 z-30 grid grid-cols-4 border-t border-border bg-background/95 backdrop-blur-xl md:hidden",
+        "fixed inset-x-0 z-30 grid grid-cols-5 border-t border-border bg-background/95 backdrop-blur-xl md:hidden",
         current ? "bottom-[88px]" : "bottom-0"
       )}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
