@@ -52,6 +52,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const loadingIdRef = useRef<string | null>(null);
   const consecutiveFailuresRef = useRef(0);
   const lastNotifiedIdRef = useRef<string | null>(null);
+  const errorRetryRef = useRef<{ id: string; count: number }>({ id: "", count: 0 });
 
   const current = index >= 0 && index < queue.length ? queue[index] : null;
 
