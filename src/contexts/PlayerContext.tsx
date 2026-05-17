@@ -196,25 +196,60 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [repeat, next]);
 
-  // Media Session metadata (lock-screen controls)
+  // Media Session metadata (lock-screen controls + system notification)
   useEffect(() => {
     if (!current || !("mediaSession" in navigator)) return;
     navigator.mediaSession.metadata = new MediaMetadata({
       title: current.title,
       artist: current.artist,
-      artwork: [
-        { src: current.thumbnail, sizes: "96x96", type: "image/jpeg" },
-        { src: current.thumbnail, sizes: "256x256", type: "image/jpeg" },
-        { src: current.thumbnail, sizes: "512x512", type: "image/jpeg" },
-      ],
+      album: "Beatly",
+      artwork: [96, 192, 256, 384, 512].map((s) => ({
+        src: current.thumbnail, sizes: `${s}x${s}`, type: "image/jpeg",
+      })),
     });
     navigator.mediaSession.setActionHandler("play", () => audioRef.current?.play());
     navigator.mediaSession.setActionHandler("pause", () => audioRef.current?.pause());
     navigator.mediaSession.setActionHandler("nexttrack", next);
     navigator.mediaSession.setActionHandler("previoustrack", prev);
+    navigator.mediaSession.setActionHandler("seekto", (d) => {
+      if (audioRef.current && d.seekTime != null) audioRef.current.currentTime = d.seekTime;
+    });
   }, [current, next, prev]);
 
+  // Keep lock-screen progress synced
+  useEffect(() => {
+    if (!("mediaSession" in navigator) || !duration) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        playbackRate: audioRef.current?.playbackRate || 1,
+        position: Math.min(currentTime, duration),
+      });
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+    } catch {/* some browsers throw */}
+  }, [currentTime, duration, isPlaying]);
+
   const progress = duration ? currentTime / duration : 0;
+
+  // Handle stream errors: retry once, then skip — never mid-song.
+  const handleAudioError = useCallback(() => {
+    const id = current?.id || "";
+    const a = audioRef.current;
+    // If we made it past 5s of real playback, the stream itself is fine —
+    // ignore the transient error rather than skipping the song.
+    if (a && a.currentTime > 5) return;
+    if (errorRetryRef.current.id !== id) {
+      errorRetryRef.current = { id, count: 0 };
+    }
+    if (errorRetryRef.current.count < 1 && a && streamUrl) {
+      errorRetryRef.current.count += 1;
+      a.load();
+      a.play().catch(() => undefined);
+      return;
+    }
+    setIsLoading(false);
+    next();
+  }, [current, streamUrl, next]);
 
   const value = useMemo<PlayerContextValue>(() => ({
     current, queue, index, isPlaying, isLoading, progress, currentTime, duration,
@@ -240,7 +275,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           a.volume = volume / 100;
         }}
         onCanPlay={() => { if (isPlaying) audioRef.current?.play().catch(() => undefined); }}
-        onError={() => { setIsLoading(false); next(); }}
+        onError={handleAudioError}
         crossOrigin="anonymous"
         preload="auto"
       />
