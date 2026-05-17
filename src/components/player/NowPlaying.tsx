@@ -76,9 +76,28 @@ export function NowPlaying({ onClose }: Props) {
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Playing from Beatly</div>
           <div className="text-sm font-semibold truncate max-w-[200px]">{current.artist}</div>
         </div>
-        <Button variant="ghost" size="icon" onClick={handleDownload} disabled={downloading || !streamUrl} aria-label="Download">
-          {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
-        </Button>
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => downloadTrack(current)}
+            disabled={saved || offlineProgress !== undefined}
+            aria-label="Save offline"
+            title="Save offline"
+            className="relative"
+          >
+            {saved ? (
+              <Check className="h-5 w-5 text-primary" />
+            ) : offlineProgress !== undefined ? (
+              <span className="text-[10px] font-bold text-primary">{offlineProgress}%</span>
+            ) : (
+              <WifiOff className="h-5 w-5" />
+            )}
+          </Button>
+          <Button variant="ghost" size="icon" onClick={handleDownload} disabled={downloading || !streamUrl} aria-label="Download to gallery">
+            {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
+          </Button>
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as "cover" | "lyrics")} className="flex flex-col flex-1 min-h-0 px-3 sm:px-6">
