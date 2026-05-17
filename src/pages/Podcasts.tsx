@@ -18,12 +18,14 @@ interface Episode {
 }
 
 const TOPICS = [
-  "Tech", "Business", "Comedy", "Motivation", "True Crime",
-  "Science", "Health", "News", "Bollywood", "Education",
+  "Bollywood", "Cricket", "Hindi Comedy", "Indian Business", "Motivation Hindi",
+  "True Crime India", "Tech India", "Spirituality", "Health India", "News India",
+  "Education", "Startup India",
 ];
 
 async function fetchEpisodes(term: string): Promise<Episode[]> {
-  const url = `https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&limit=40&term=${encodeURIComponent(term)}`;
+  // country=IN biases iTunes to Indian podcasts; limit 50 for variety.
+  const url = `https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&country=IN&limit=50&term=${encodeURIComponent(term)}`;
   const res = await fetch(url);
   if (!res.ok) return [];
   const data = await res.json();
@@ -31,7 +33,7 @@ async function fetchEpisodes(term: string): Promise<Episode[]> {
 }
 
 export default function Podcasts() {
-  const [topic, setTopic] = useState("Tech");
+  const [topic, setTopic] = useState("Bollywood");
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<Episode[]>([]);
   const [loading, setLoading] = useState(true);
