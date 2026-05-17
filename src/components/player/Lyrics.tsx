@@ -41,10 +41,22 @@ export function Lyrics() {
   useEffect(() => {
     if (!current) return;
     let cancelled = false;
-    setLoading(true);
     setSynced(null);
     setPlain(null);
     setActiveIdx(-1);
+
+    // Fast cache hit
+    const cacheKey = `beatly:lyrics:${current.id}`;
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const c = JSON.parse(raw) as { synced?: string; plain?: string };
+        if (c.synced) { setSynced(parseLrc(c.synced)); setLoading(false); return; }
+        if (c.plain) { setPlain(c.plain); setLoading(false); return; }
+      }
+    } catch { /* ignore */ }
+
+    setLoading(true);
 
     const cleanTitle = current.title
       .replace(/\([^)]*\)/g, "")
@@ -59,7 +71,6 @@ export function Lyrics() {
       .trim();
 
     const tryFetch = async () => {
-      // 1. Exact get with cleaned title + artist + duration
       const tryGet = async (track: string, artist: string, dur?: number) => {
         const p = new URLSearchParams({ track_name: track, artist_name: artist });
         if (dur) p.set("duration", String(dur));
@@ -74,20 +85,24 @@ export function Lyrics() {
         return arr.find((x) => x.syncedLyrics) || arr[0] || null;
       };
 
-      let data: LyricsResponse | null = null;
-      data = await tryGet(cleanTitle, cleanArtist, current.duration).catch(() => null);
-      if (!data?.syncedLyrics && !data?.plainLyrics) {
-        data = await tryGet(cleanTitle, cleanArtist).catch(() => null);
-      }
-      if (!data?.syncedLyrics && !data?.plainLyrics) {
-        data = await trySearch(`${cleanTitle} ${cleanArtist}`).catch(() => null);
-      }
-      if (!data?.syncedLyrics && !data?.plainLyrics) {
-        data = await trySearch(cleanTitle).catch(() => null);
-      }
+      // Race multiple lookups in parallel — first one with synced lyrics wins.
+      const candidates = await Promise.all([
+        tryGet(cleanTitle, cleanArtist, current.duration).catch(() => null),
+        tryGet(cleanTitle, cleanArtist).catch(() => null),
+        trySearch(`${cleanTitle} ${cleanArtist}`).catch(() => null),
+        trySearch(cleanTitle).catch(() => null),
+      ]);
       if (cancelled) return;
-      if (data?.syncedLyrics) setSynced(parseLrc(data.syncedLyrics));
-      else if (data?.plainLyrics) setPlain(data.plainLyrics);
+      const withSynced = candidates.find((d) => d?.syncedLyrics);
+      const withPlain = candidates.find((d) => d?.plainLyrics);
+      const data = withSynced || withPlain;
+      if (data?.syncedLyrics) {
+        setSynced(parseLrc(data.syncedLyrics));
+        try { localStorage.setItem(cacheKey, JSON.stringify({ synced: data.syncedLyrics })); } catch {/**/}
+      } else if (data?.plainLyrics) {
+        setPlain(data.plainLyrics);
+        try { localStorage.setItem(cacheKey, JSON.stringify({ plain: data.plainLyrics })); } catch {/**/}
+      }
       setLoading(false);
     };
 

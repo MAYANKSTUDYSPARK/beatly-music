@@ -6,9 +6,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { PlayerProvider } from "@/contexts/PlayerContext";
 import { LibraryProvider } from "@/contexts/LibraryContext";
 import { NotificationsProvider } from "@/contexts/NotificationsContext";
+import { DownloadsProvider } from "@/contexts/DownloadsContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { RecentTracker } from "@/components/player/RecentTracker";
 import { TelegramFab } from "@/components/TelegramFab";
+import { InstallPrompt } from "@/components/InstallPrompt";
 import Home from "./pages/Home";
 import Search from "./pages/Search";
 import Library from "./pages/Library";
@@ -16,6 +18,8 @@ import Liked from "./pages/Liked";
 import Playlist from "./pages/Playlist";
 import Artist from "./pages/Artist";
 import Podcasts from "./pages/Podcasts";
+import Trending from "./pages/Trending";
+import Downloads from "./pages/Downloads";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -28,23 +32,28 @@ const App = () => (
       <BrowserRouter>
         <NotificationsProvider>
           <LibraryProvider>
-            <PlayerProvider>
-              <RecentTracker />
-              <TelegramFab />
-              <Routes>
-                <Route element={<AppLayout />}>
-                  <Route path="/" element={<Home />} />
-                  <Route path="/search" element={<Search />} />
-                  <Route path="/library" element={<Library />} />
-                  <Route path="/liked" element={<Liked />} />
-                  <Route path="/podcasts" element={<Podcasts />} />
-                  <Route path="/playlist/:id" element={<Playlist />} />
-                  <Route path="/artist/:name" element={<Artist />} />
-                </Route>
-                <Route path="/index" element={<Navigate to="/" replace />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </PlayerProvider>
+            <DownloadsProvider>
+              <PlayerProvider>
+                <RecentTracker />
+                <InstallPrompt />
+                <TelegramFab />
+                <Routes>
+                  <Route element={<AppLayout />}>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/search" element={<Search />} />
+                    <Route path="/trending" element={<Trending />} />
+                    <Route path="/library" element={<Library />} />
+                    <Route path="/liked" element={<Liked />} />
+                    <Route path="/podcasts" element={<Podcasts />} />
+                    <Route path="/downloads" element={<Downloads />} />
+                    <Route path="/playlist/:id" element={<Playlist />} />
+                    <Route path="/artist/:name" element={<Artist />} />
+                  </Route>
+                  <Route path="/index" element={<Navigate to="/" replace />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </PlayerProvider>
+            </DownloadsProvider>
           </LibraryProvider>
         </NotificationsProvider>
       </BrowserRouter>
