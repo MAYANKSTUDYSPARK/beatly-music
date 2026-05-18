@@ -77,6 +77,9 @@ export function PlayerBar() {
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={prev} aria-label="Previous">
               <SkipBack className="h-5 w-5 fill-current" />
             </Button>
+            <Button variant="ghost" size="icon" className="hidden h-8 w-8 md:inline-flex" onClick={() => skipBy(-10)} aria-label="Back 10 seconds">
+              <RotateCcw className="h-4 w-4" />
+            </Button>
             <Button
               size="icon"
               className="h-10 w-10 rounded-full bg-foreground text-background hover:bg-foreground/90 hover:scale-105 transition-bounce"
@@ -85,6 +88,9 @@ export function PlayerBar() {
               aria-label={isPlaying ? "Pause" : "Play"}
             >
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : isPlaying ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current ml-0.5" />}
+            </Button>
+            <Button variant="ghost" size="icon" className="hidden h-8 w-8 md:inline-flex" onClick={() => skipBy(10)} aria-label="Forward 10 seconds">
+              <RotateCw className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={next} aria-label="Next">
               <SkipForward className="h-5 w-5 fill-current" />
