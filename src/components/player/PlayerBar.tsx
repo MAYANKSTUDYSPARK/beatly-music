@@ -5,6 +5,7 @@ import { Slider } from "@/components/ui/slider";
 import {
   Play, Pause, SkipBack, SkipForward, Heart,
   Shuffle, Repeat, Repeat1, Volume2, VolumeX, ListMusic, Loader2, Maximize2,
+  Trash2, RotateCcw, Gauge, RotateCw, Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/music-api";
@@ -18,6 +19,7 @@ export function PlayerBar() {
     progress, currentTime, duration, seekTo,
     volume, setVolume, shuffle, toggleShuffle,
     repeat, cycleRepeat, queue, playTrack,
+    playbackRate, setPlaybackRate, clearQueue, removeFromQueue, skipBy, stop,
   } = usePlayer();
   const { isLiked, toggleLike } = useLibrary();
   const [muted, setMuted] = useState(false);
