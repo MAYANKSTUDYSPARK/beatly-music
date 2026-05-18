@@ -81,9 +81,10 @@ export async function getStreamUrl(videoId: string): Promise<string | null> {
   }
 }
 
-export function getDownloadUrl(videoId: string): string {
+export function getDownloadUrl(videoId: string, fileName?: string): string {
   const url = new URL(`${BASE}/download`);
   url.searchParams.set("id", videoId);
+  if (fileName) url.searchParams.set("name", fileName);
   return url.toString();
 }
 
