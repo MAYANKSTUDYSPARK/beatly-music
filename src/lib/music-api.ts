@@ -21,14 +21,18 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 const BASE = `${SUPABASE_URL}/functions/v1/music-api`;
 
+export function getMusicApiHeaders(): Record<string, string> {
+  return {
+    apikey: ANON_KEY,
+    Authorization: `Bearer ${ANON_KEY}`,
+  };
+}
+
 async function call<T>(path: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(`${BASE}${path}`);
   if (params) for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const res = await fetch(url.toString(), {
-    headers: {
-      apikey: ANON_KEY,
-      Authorization: `Bearer ${ANON_KEY}`,
-    },
+    headers: getMusicApiHeaders(),
   });
   if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
   return res.json();
