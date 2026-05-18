@@ -5,6 +5,7 @@ import { Slider } from "@/components/ui/slider";
 import {
   Play, Pause, SkipBack, SkipForward, Heart,
   Shuffle, Repeat, Repeat1, Volume2, VolumeX, ListMusic, Loader2, Maximize2,
+  Trash2, RotateCcw, Gauge, RotateCw, Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/music-api";
@@ -18,6 +19,7 @@ export function PlayerBar() {
     progress, currentTime, duration, seekTo,
     volume, setVolume, shuffle, toggleShuffle,
     repeat, cycleRepeat, queue, playTrack,
+    playbackRate, setPlaybackRate, clearQueue, removeFromQueue, skipBy, stop,
   } = usePlayer();
   const { isLiked, toggleLike } = useLibrary();
   const [muted, setMuted] = useState(false);
@@ -75,6 +77,9 @@ export function PlayerBar() {
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={prev} aria-label="Previous">
               <SkipBack className="h-5 w-5 fill-current" />
             </Button>
+            <Button variant="ghost" size="icon" className="hidden h-8 w-8 md:inline-flex" onClick={() => skipBy(-10)} aria-label="Back 10 seconds">
+              <RotateCcw className="h-4 w-4" />
+            </Button>
             <Button
               size="icon"
               className="h-10 w-10 rounded-full bg-foreground text-background hover:bg-foreground/90 hover:scale-105 transition-bounce"
@@ -83,6 +88,9 @@ export function PlayerBar() {
               aria-label={isPlaying ? "Pause" : "Play"}
             >
               {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : isPlaying ? <Pause className="h-5 w-5 fill-current" /> : <Play className="h-5 w-5 fill-current ml-0.5" />}
+            </Button>
+            <Button variant="ghost" size="icon" className="hidden h-8 w-8 md:inline-flex" onClick={() => skipBy(10)} aria-label="Forward 10 seconds">
+              <RotateCw className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="icon" className="h-9 w-9" onClick={next} aria-label="Next">
               <SkipForward className="h-5 w-5 fill-current" />
@@ -109,7 +117,12 @@ export function PlayerBar() {
               </SheetTrigger>
               <SheetContent side="right" className="w-full sm:max-w-md bg-card">
                 <SheetHeader>
-                  <SheetTitle>Queue</SheetTitle>
+                  <div className="flex items-center justify-between gap-3">
+                    <SheetTitle>Queue</SheetTitle>
+                    <Button variant="secondary" size="sm" onClick={clearQueue} disabled={queue.length <= 1}>
+                      Clear
+                    </Button>
+                  </div>
                 </SheetHeader>
                 <div className="mt-4 space-y-1 overflow-y-auto max-h-[calc(100vh-100px)]">
                   {queue.map((t, i) => (
@@ -126,6 +139,15 @@ export function PlayerBar() {
                         <div className="truncate text-sm">{t.title}</div>
                         <div className="truncate text-xs text-muted-foreground">{t.artist}</div>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 flex-shrink-0"
+                        onClick={(e) => { e.stopPropagation(); removeFromQueue(i); }}
+                        aria-label="Remove from queue"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Button>
                     </button>
                   ))}
                 </div>
@@ -134,6 +156,20 @@ export function PlayerBar() {
 
             <Button variant="ghost" size="icon" className="h-8 w-8 hidden sm:inline-flex" onClick={() => toggleLike(current)} aria-label="Like">
               <Heart className={cn("h-4 w-4", liked && "fill-primary text-primary")} />
+            </Button>
+
+            <Button variant="ghost" size="icon" className="h-8 w-8 hidden lg:inline-flex" onClick={stop} aria-label="Stop playback">
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="hidden h-8 gap-1 px-2 text-xs font-bold lg:inline-flex"
+              onClick={() => setPlaybackRate(playbackRate >= 1.25 ? 1 : playbackRate + 0.25)}
+              aria-label="Playback speed"
+            >
+              <Gauge className="h-3.5 w-3.5" /> {playbackRate.toFixed(2)}x
             </Button>
 
             <div className="hidden items-center gap-2 sm:flex w-32">

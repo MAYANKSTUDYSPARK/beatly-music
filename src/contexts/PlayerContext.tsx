@@ -20,6 +20,8 @@ interface PlayerContextValue {
   repeat: RepeatMode;
   audioRef: React.RefObject<HTMLAudioElement>;
   streamUrl: string | null;
+  playbackRate: number;
+  setPlaybackRate: (rate: number) => void;
   playTrack: (track: Track, queue?: Track[]) => void;
   togglePlay: () => void;
   next: () => void;
@@ -29,12 +31,16 @@ interface PlayerContextValue {
   toggleShuffle: () => void;
   cycleRepeat: () => void;
   addToQueue: (track: Track) => void;
+  clearQueue: () => void;
+  removeFromQueue: (queueIndex: number) => void;
+  stop: () => void;
+  skipBy: (seconds: number) => void;
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
-  const { push: pushNotification } = useNotifications();
+  const { push: pushNotification, systemPermission, requestSystemPermission } = useNotifications();
   const [queue, setQueue] = useState<Track[]>([]);
   const [index, setIndex] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -42,6 +48,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [playbackRate, setPlaybackRateState] = useState<number>(() => {
+    const rate = Number(localStorage.getItem("beatly:playback-rate") || "1");
+    return Number.isFinite(rate) && rate >= 0.75 && rate <= 1.5 ? rate : 1;
+  });
   const [volume, setVolumeState] = useState<number>(() => {
     const v = localStorage.getItem("beatly:volume");
     return v ? Number(v) : 80;
@@ -53,6 +63,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const consecutiveFailuresRef = useRef(0);
   const lastNotifiedIdRef = useRef<string | null>(null);
   const errorRetryRef = useRef<{ id: string; count: number }>({ id: "", count: 0 });
+  const stallRetryRef = useRef<{ id: string; count: number; at: number }>({ id: "", count: 0, at: 0 });
 
   const current = index >= 0 && index < queue.length ? queue[index] : null;
 
@@ -77,11 +88,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
       if (!url) {
         consecutiveFailuresRef.current += 1;
-        if (consecutiveFailuresRef.current < 5) {
-          setTimeout(() => {
-            if (!cancelled) setIndex((i) => Math.min(i + 1, queue.length - 1));
-          }, 300);
-        }
+        setIsPlaying(false);
+        pushNotification({
+          title: "Stream unavailable",
+          body: "Try another song or play a downloaded track.",
+          image: current.thumbnail,
+        });
       } else {
         consecutiveFailuresRef.current = 0;
         setStreamUrl(url);
@@ -90,7 +102,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       if (!cancelled) setIsLoading(false);
     });
     return () => { cancelled = true; };
-  }, [current, queue.length]);
+  }, [current, pushNotification]);
 
   // Notify on track change
   useEffect(() => {
@@ -119,6 +131,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [current, index, queue.length]);
 
   const playTrack = useCallback((track: Track, newQueue?: Track[]) => {
+    if (systemPermission === "default") requestSystemPermission().catch(() => undefined);
     consecutiveFailuresRef.current = 0;
     if (newQueue && newQueue.length) {
       const i = newQueue.findIndex((t) => t.id === track.id);
@@ -137,7 +150,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       });
     }
     setIsPlaying(true);
-  }, []);
+  }, [systemPermission, requestSystemPermission]);
 
   const addToQueue = useCallback((track: Track) => {
     setQueue((q) => (q.some((t) => t.id === track.id) ? q : [...q, track]));
@@ -184,17 +197,71 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (audioRef.current) audioRef.current.volume = v / 100;
   }, []);
 
+  const setPlaybackRate = useCallback((rate: number) => {
+    const safeRate = Math.min(1.5, Math.max(0.75, rate));
+    setPlaybackRateState(safeRate);
+    localStorage.setItem("beatly:playback-rate", String(safeRate));
+    if (audioRef.current) audioRef.current.playbackRate = safeRate;
+  }, []);
+
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
   const cycleRepeat = useCallback(() => setRepeat((r) => r === "off" ? "all" : r === "all" ? "one" : "off"), []);
 
+  const clearQueue = useCallback(() => {
+    setQueue(current ? [current] : []);
+    setIndex(current ? 0 : -1);
+  }, [current]);
+
+  const removeFromQueue = useCallback((queueIndex: number) => {
+    setQueue((q) => {
+      if (queueIndex < 0 || queueIndex >= q.length) return q;
+      const nextQueue = q.filter((_, i) => i !== queueIndex);
+      setIndex((i) => {
+        if (nextQueue.length === 0) return -1;
+        if (queueIndex < i) return i - 1;
+        if (queueIndex === i) return Math.min(i, nextQueue.length - 1);
+        return i;
+      });
+      return nextQueue;
+    });
+  }, []);
+
+  const stop = useCallback(() => {
+    const a = audioRef.current;
+    if (a) {
+      a.pause();
+      a.currentTime = 0;
+    }
+    setCurrentTime(0);
+    setIsPlaying(false);
+  }, []);
+
+  const skipBy = useCallback((seconds: number) => {
+    const a = audioRef.current;
+    if (!a) return;
+    const nextTime = Math.min(Math.max(a.currentTime + seconds, 0), duration || Number.MAX_SAFE_INTEGER);
+    a.currentTime = nextTime;
+    setCurrentTime(nextTime);
+  }, [duration]);
+
   const handleEnded = useCallback(() => {
+    const expectedDuration = duration || current?.duration || 0;
+    if (expectedDuration > 0 && currentTime < expectedDuration - 2) {
+      setIsPlaying(false);
+      pushNotification({
+        title: "Playback paused",
+        body: "Stream ended early. Tap play to resume this same song.",
+        image: current?.thumbnail,
+      });
+      return;
+    }
     if (repeat === "one" && audioRef.current) {
       audioRef.current.currentTime = 0;
       audioRef.current.play().catch(() => undefined);
     } else {
       next();
     }
-  }, [repeat, next]);
+  }, [repeat, next, duration, current, currentTime, pushNotification]);
 
   // Media Session metadata (lock-screen controls + system notification)
   useEffect(() => {
@@ -209,12 +276,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     });
     navigator.mediaSession.setActionHandler("play", () => audioRef.current?.play());
     navigator.mediaSession.setActionHandler("pause", () => audioRef.current?.pause());
+    navigator.mediaSession.setActionHandler("stop", stop);
     navigator.mediaSession.setActionHandler("nexttrack", next);
     navigator.mediaSession.setActionHandler("previoustrack", prev);
+    navigator.mediaSession.setActionHandler("seekbackward", (d) => skipBy(-(d.seekOffset || 10)));
+    navigator.mediaSession.setActionHandler("seekforward", (d) => skipBy(d.seekOffset || 10));
     navigator.mediaSession.setActionHandler("seekto", (d) => {
       if (audioRef.current && d.seekTime != null) audioRef.current.currentTime = d.seekTime;
     });
-  }, [current, next, prev]);
+  }, [current, next, prev, stop, skipBy]);
 
   // Keep lock-screen progress synced
   useEffect(() => {
@@ -231,7 +301,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const progress = duration ? currentTime / duration : 0;
 
-  // Handle stream errors: retry once, then skip — never mid-song.
+  // Handle stream errors: retry in-place only. Never auto-switch tracks on network hiccups.
   const handleAudioError = useCallback(() => {
     const id = current?.id || "";
     const a = audioRef.current;
@@ -248,15 +318,38 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setIsLoading(false);
-    next();
-  }, [current, streamUrl, next]);
+    setIsPlaying(false);
+    pushNotification({
+      title: "Playback paused",
+      body: "Network issue detected. Tap play to retry the same song.",
+      image: current?.thumbnail,
+    });
+  }, [current, streamUrl, pushNotification]);
+
+  const handleWaiting = useCallback(() => {
+    const id = current?.id || "";
+    const a = audioRef.current;
+    if (!a || !id || !streamUrl) return;
+    if (stallRetryRef.current.id !== id) stallRetryRef.current = { id, count: 0, at: 0 };
+    const now = Date.now();
+    if (stallRetryRef.current.count >= 2 || now - stallRetryRef.current.at < 3500) return;
+    stallRetryRef.current = { id, count: stallRetryRef.current.count + 1, at: now };
+    window.setTimeout(() => {
+      if (audioRef.current && current?.id === id && isPlaying && audioRef.current.readyState < 3) {
+        const resumeAt = audioRef.current.currentTime;
+        audioRef.current.load();
+        audioRef.current.currentTime = resumeAt;
+        audioRef.current.play().catch(() => undefined);
+      }
+    }, 1800);
+  }, [current, isPlaying, streamUrl]);
 
   const value = useMemo<PlayerContextValue>(() => ({
     current, queue, index, isPlaying, isLoading, progress, currentTime, duration,
-    volume, shuffle, repeat, audioRef, streamUrl,
+    volume, shuffle, repeat, audioRef, streamUrl, playbackRate, setPlaybackRate,
     playTrack, togglePlay, next, prev, seekTo, setVolume,
-    toggleShuffle, cycleRepeat, addToQueue,
-  }), [current, queue, index, isPlaying, isLoading, progress, currentTime, duration, volume, shuffle, repeat, streamUrl, playTrack, togglePlay, next, prev, seekTo, setVolume, toggleShuffle, cycleRepeat, addToQueue]);
+    toggleShuffle, cycleRepeat, addToQueue, clearQueue, removeFromQueue, stop, skipBy,
+  }), [current, queue, index, isPlaying, isLoading, progress, currentTime, duration, volume, shuffle, repeat, streamUrl, playbackRate, setPlaybackRate, playTrack, togglePlay, next, prev, seekTo, setVolume, toggleShuffle, cycleRepeat, addToQueue, clearQueue, removeFromQueue, stop, skipBy]);
 
   return (
     <PlayerContext.Provider value={value}>
@@ -273,8 +366,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           const a = e.currentTarget as HTMLAudioElement;
           setDuration(a.duration || 0);
           a.volume = volume / 100;
+          a.playbackRate = playbackRate;
         }}
         onCanPlay={() => { if (isPlaying) audioRef.current?.play().catch(() => undefined); }}
+        onWaiting={handleWaiting}
+        onStalled={handleWaiting}
         onError={handleAudioError}
         crossOrigin="anonymous"
         preload="auto"

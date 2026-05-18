@@ -1,4 +1,4 @@
-import { Bell, Download, Send } from "lucide-react";
+import { Bell, Download, Send, BellRing } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useNotifications } from "@/contexts/NotificationsContext";
@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 
 export function TopBar() {
-  const { notifications, unreadCount, markAllRead, triggerInstall, canInstall } = useNotifications();
+  const { notifications, unreadCount, markAllRead, triggerInstall, canInstall, systemPermission, requestSystemPermission } = useNotifications();
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
 
@@ -54,6 +54,17 @@ export function TopBar() {
             aria-label="Install app"
           >
             <Download className="h-5 w-5" />
+          </Button>
+        )}
+
+        {systemPermission === "default" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={requestSystemPermission}
+            className="hidden sm:inline-flex gap-1 border-primary/40 text-primary hover:bg-primary/10"
+          >
+            <BellRing className="h-4 w-4" /> Notify
           </Button>
         )}
 

@@ -29,6 +29,9 @@ const json = (data: unknown, status = 200) =>
 
 const err = (msg: string, status = 500) => json({ error: msg }, status);
 
+const safeFileName = (value: string) =>
+  value.replace(/[\\/\?%\*:|"<>]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120) || "beatly-track";
+
 interface Track {
   id: string;
   title: string;
@@ -393,6 +396,32 @@ Deno.serve(async (req) => {
       const streamUrl = await getStreamUrl(id);
       // Always return 200 — null url signals "unavailable" without a noisy 404.
       return json({ url: streamUrl, available: !!streamUrl });
+    }
+    if (sub === "download") {
+      const id = url.searchParams.get("id") ?? "";
+      const name = safeFileName(url.searchParams.get("name") ?? `Beatly-${id}`);
+      if (!id) return err("id required", 400);
+      const streamUrl = await getStreamUrl(id);
+      if (!streamUrl) return err("Download unavailable for this track", 404);
+      const upstream = await fetch(streamUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          Accept: "audio/*,*/*;q=0.8",
+          Range: req.headers.get("range") ?? "bytes=0-",
+        },
+      });
+      if (!upstream.ok && upstream.status !== 206) return err("Download source failed", 502);
+      const headers = new Headers(corsHeaders);
+      const contentType = upstream.headers.get("content-type") || "audio/mp4";
+      headers.set("Content-Type", contentType);
+      headers.set("Content-Disposition", `attachment; filename="${name}.m4a"`);
+      headers.set("Accept-Ranges", upstream.headers.get("accept-ranges") || "bytes");
+      headers.set("Cache-Control", "private, max-age=300");
+      for (const h of ["content-length", "content-range"]) {
+        const value = upstream.headers.get(h);
+        if (value) headers.set(h, value);
+      }
+      return new Response(upstream.body, { status: upstream.status, headers });
     }
     return err("Not found", 404);
   } catch (e) {

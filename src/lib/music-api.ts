@@ -21,14 +21,18 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 const BASE = `${SUPABASE_URL}/functions/v1/music-api`;
 
+export function getMusicApiHeaders(): Record<string, string> {
+  return {
+    apikey: ANON_KEY,
+    Authorization: `Bearer ${ANON_KEY}`,
+  };
+}
+
 async function call<T>(path: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(`${BASE}${path}`);
   if (params) for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const res = await fetch(url.toString(), {
-    headers: {
-      apikey: ANON_KEY,
-      Authorization: `Bearer ${ANON_KEY}`,
-    },
+    headers: getMusicApiHeaders(),
   });
   if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
   return res.json();
@@ -36,6 +40,8 @@ async function call<T>(path: string, params?: Record<string, string>): Promise<T
 
 const cache = new Map<string, { ts: number; data: unknown }>();
 const TTL = 5 * 60 * 1000;
+const streamCache = new Map<string, { ts: number; url: string | null }>();
+const STREAM_TTL = 18 * 60 * 1000;
 async function cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.ts < TTL) return hit.data as T;
@@ -66,12 +72,24 @@ export async function getRelated(videoId: string): Promise<Track[]> {
 }
 
 export async function getStreamUrl(videoId: string): Promise<string | null> {
+  const hit = streamCache.get(videoId);
+  if (hit && Date.now() - hit.ts < STREAM_TTL) return hit.url;
   try {
     const data = await call<{ url: string }>("/stream", { id: videoId });
-    return data.url ?? null;
+    const url = data.url ?? null;
+    streamCache.set(videoId, { ts: Date.now(), url });
+    return url;
   } catch {
+    streamCache.set(videoId, { ts: Date.now(), url: null });
     return null;
   }
+}
+
+export function getDownloadUrl(videoId: string, fileName?: string): string {
+  const url = new URL(`${BASE}/download`);
+  url.searchParams.set("id", videoId);
+  if (fileName) url.searchParams.set("name", fileName);
+  return url.toString();
 }
 
 export function formatDuration(seconds: number): string {
