@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { Track } from "@/lib/music-api";
-import { getStreamUrl } from "@/lib/music-api";
+import { getDownloadUrl } from "@/lib/music-api";
 import {
   saveDownload, listDownloads, deleteDownload, getDownload,
   type DownloadRecord, getDeviceId,
@@ -46,9 +46,13 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
     }
     setInProgress((p) => ({ ...p, [track.id]: 1 }));
     try {
-      const url = track.streamOverride || (await getStreamUrl(track.id));
+      const url = track.streamOverride || getDownloadUrl(track.id);
       if (!url) throw new Error("No stream");
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        headers: track.streamOverride ? undefined : {
+          "x-beatly-file-name": `${track.artist} - ${track.title}`,
+        },
+      });
       if (!res.ok || !res.body) throw new Error("Fetch failed");
 
       const total = Number(res.headers.get("content-length") || 0);
@@ -67,11 +71,12 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
         }
       }
       const blob = new Blob(chunks as BlobPart[], { type: res.headers.get("content-type") || "audio/mp4" });
+      if (blob.size < 1024) throw new Error("Empty file");
       await saveDownload(track, blob);
       await refresh();
       toast.success(`Saved offline: ${track.title}`);
     } catch (e) {
-      toast.error("Download failed — try again");
+      toast.error("Download failed — this song source is blocked. Try another track.");
     } finally {
       setInProgress((p) => {
         const n = { ...p };
