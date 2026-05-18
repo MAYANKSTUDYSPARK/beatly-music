@@ -200,7 +200,7 @@ export function NowPlaying({ onClose }: Props) {
           </Button>
         </div>
 
-        <div className="mt-2 flex items-center justify-center gap-1">
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-1">
           <SleepTimer />
           <Equalizer />
           <Button variant="secondary" size="sm" onClick={() => setPlaybackRate(playbackRate >= 1.25 ? 1 : playbackRate + 0.25)}>
