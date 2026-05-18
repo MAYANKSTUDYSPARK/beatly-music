@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { Track } from "@/lib/music-api";
-import { getDownloadUrl } from "@/lib/music-api";
+import { getDownloadUrl, getMusicApiHeaders } from "@/lib/music-api";
 import {
   saveDownload, listDownloads, deleteDownload, getDownload,
   type DownloadRecord, getDeviceId,
@@ -48,7 +48,7 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
     try {
       const url = track.streamOverride || getDownloadUrl(track.id, `${track.artist} - ${track.title}`);
       if (!url) throw new Error("No stream");
-      const res = await fetch(url);
+      const res = await fetch(url, { headers: track.streamOverride ? undefined : getMusicApiHeaders() });
       if (!res.ok || !res.body) throw new Error("Fetch failed");
 
       const total = Number(res.headers.get("content-length") || 0);
