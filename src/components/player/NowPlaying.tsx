@@ -7,7 +7,7 @@ import {
   Shuffle, Repeat, Repeat1, ChevronDown, Download, Loader2, Mic2, Disc3, WifiOff, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatDuration, getDownloadUrl } from "@/lib/music-api";
+import { formatDuration, getDownloadUrl, getMusicApiHeaders } from "@/lib/music-api";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Lyrics } from "./Lyrics";
@@ -44,7 +44,7 @@ export function NowPlaying({ onClose }: Props) {
     }
     setDownloading(true);
     try {
-      const res = await fetch(source);
+      const res = await fetch(source, { headers: current.streamOverride ? undefined : getMusicApiHeaders() });
       if (!res.ok) throw new Error("Download failed");
       const blob = await res.blob();
       if (blob.size < 1024) throw new Error("Empty file");
