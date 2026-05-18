@@ -20,6 +20,8 @@ interface PlayerContextValue {
   repeat: RepeatMode;
   audioRef: React.RefObject<HTMLAudioElement>;
   streamUrl: string | null;
+  playbackRate: number;
+  setPlaybackRate: (rate: number) => void;
   playTrack: (track: Track, queue?: Track[]) => void;
   togglePlay: () => void;
   next: () => void;
@@ -42,6 +44,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [playbackRate, setPlaybackRateState] = useState<number>(() => {
+    const rate = Number(localStorage.getItem("beatly:playback-rate") || "1");
+    return Number.isFinite(rate) && rate >= 0.75 && rate <= 1.5 ? rate : 1;
+  });
   const [volume, setVolumeState] = useState<number>(() => {
     const v = localStorage.getItem("beatly:volume");
     return v ? Number(v) : 80;
@@ -53,6 +59,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const consecutiveFailuresRef = useRef(0);
   const lastNotifiedIdRef = useRef<string | null>(null);
   const errorRetryRef = useRef<{ id: string; count: number }>({ id: "", count: 0 });
+  const stallRetryRef = useRef<{ id: string; count: number; at: number }>({ id: "", count: 0, at: 0 });
 
   const current = index >= 0 && index < queue.length ? queue[index] : null;
 
@@ -77,11 +84,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
       if (!url) {
         consecutiveFailuresRef.current += 1;
-        if (consecutiveFailuresRef.current < 5) {
-          setTimeout(() => {
-            if (!cancelled) setIndex((i) => Math.min(i + 1, queue.length - 1));
-          }, 300);
-        }
+        setIsPlaying(false);
+        pushNotification({
+          title: "Stream unavailable",
+          body: "Try another song or play a downloaded track.",
+          image: current.thumbnail,
+        });
       } else {
         consecutiveFailuresRef.current = 0;
         setStreamUrl(url);
@@ -90,7 +98,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       if (!cancelled) setIsLoading(false);
     });
     return () => { cancelled = true; };
-  }, [current, queue.length]);
+  }, [current, pushNotification]);
 
   // Notify on track change
   useEffect(() => {
@@ -184,6 +192,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (audioRef.current) audioRef.current.volume = v / 100;
   }, []);
 
+  const setPlaybackRate = useCallback((rate: number) => {
+    const safeRate = Math.min(1.5, Math.max(0.75, rate));
+    setPlaybackRateState(safeRate);
+    localStorage.setItem("beatly:playback-rate", String(safeRate));
+    if (audioRef.current) audioRef.current.playbackRate = safeRate;
+  }, []);
+
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
   const cycleRepeat = useCallback(() => setRepeat((r) => r === "off" ? "all" : r === "all" ? "one" : "off"), []);
 
@@ -231,7 +246,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const progress = duration ? currentTime / duration : 0;
 
-  // Handle stream errors: retry once, then skip — never mid-song.
+  // Handle stream errors: retry in-place only. Never auto-switch tracks on network hiccups.
   const handleAudioError = useCallback(() => {
     const id = current?.id || "";
     const a = audioRef.current;
@@ -248,15 +263,38 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setIsLoading(false);
-    next();
-  }, [current, streamUrl, next]);
+    setIsPlaying(false);
+    pushNotification({
+      title: "Playback paused",
+      body: "Network issue detected. Tap play to retry the same song.",
+      image: current?.thumbnail,
+    });
+  }, [current, streamUrl, pushNotification]);
+
+  const handleWaiting = useCallback(() => {
+    const id = current?.id || "";
+    const a = audioRef.current;
+    if (!a || !id || !streamUrl) return;
+    if (stallRetryRef.current.id !== id) stallRetryRef.current = { id, count: 0, at: 0 };
+    const now = Date.now();
+    if (stallRetryRef.current.count >= 2 || now - stallRetryRef.current.at < 3500) return;
+    stallRetryRef.current = { id, count: stallRetryRef.current.count + 1, at: now };
+    window.setTimeout(() => {
+      if (audioRef.current && current?.id === id && isPlaying && audioRef.current.readyState < 3) {
+        const resumeAt = audioRef.current.currentTime;
+        audioRef.current.load();
+        audioRef.current.currentTime = resumeAt;
+        audioRef.current.play().catch(() => undefined);
+      }
+    }, 1800);
+  }, [current, isPlaying, streamUrl]);
 
   const value = useMemo<PlayerContextValue>(() => ({
     current, queue, index, isPlaying, isLoading, progress, currentTime, duration,
-    volume, shuffle, repeat, audioRef, streamUrl,
+    volume, shuffle, repeat, audioRef, streamUrl, playbackRate, setPlaybackRate,
     playTrack, togglePlay, next, prev, seekTo, setVolume,
     toggleShuffle, cycleRepeat, addToQueue,
-  }), [current, queue, index, isPlaying, isLoading, progress, currentTime, duration, volume, shuffle, repeat, streamUrl, playTrack, togglePlay, next, prev, seekTo, setVolume, toggleShuffle, cycleRepeat, addToQueue]);
+  }), [current, queue, index, isPlaying, isLoading, progress, currentTime, duration, volume, shuffle, repeat, streamUrl, playbackRate, setPlaybackRate, playTrack, togglePlay, next, prev, seekTo, setVolume, toggleShuffle, cycleRepeat, addToQueue]);
 
   return (
     <PlayerContext.Provider value={value}>
@@ -273,8 +311,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           const a = e.currentTarget as HTMLAudioElement;
           setDuration(a.duration || 0);
           a.volume = volume / 100;
+          a.playbackRate = playbackRate;
         }}
         onCanPlay={() => { if (isPlaying) audioRef.current?.play().catch(() => undefined); }}
+        onWaiting={handleWaiting}
+        onStalled={handleWaiting}
         onError={handleAudioError}
         crossOrigin="anonymous"
         preload="auto"
