@@ -5,6 +5,7 @@ import { Slider } from "@/components/ui/slider";
 import {
   Play, Pause, SkipBack, SkipForward, Heart,
   Shuffle, Repeat, Repeat1, ChevronDown, Download, Loader2, Mic2, Disc3, WifiOff, Check,
+  Gauge, RotateCcw, RotateCw, Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDuration, getDownloadUrl, getMusicApiHeaders } from "@/lib/music-api";
@@ -25,6 +26,7 @@ export function NowPlaying({ onClose }: Props) {
     current, isPlaying, isLoading, togglePlay, next, prev,
     progress, currentTime, duration, seekTo,
     shuffle, toggleShuffle, repeat, cycleRepeat, streamUrl,
+    playbackRate, setPlaybackRate, skipBy, stop,
   } = usePlayer();
   const { isLiked, toggleLike } = useLibrary();
   const { isDownloaded, downloadTrack, inProgress } = useDownloads();
@@ -172,6 +174,9 @@ export function NowPlaying({ onClose }: Props) {
           <Button variant="ghost" size="icon" className="h-12 w-12" onClick={prev} aria-label="Previous">
             <SkipBack className="h-7 w-7 fill-current" />
           </Button>
+          <Button variant="ghost" size="icon" className="hidden h-10 w-10 sm:inline-flex" onClick={() => skipBy(-10)} aria-label="Back 10 seconds">
+            <RotateCcw className="h-5 w-5" />
+          </Button>
           <Button
             size="icon"
             className="h-14 w-14 sm:h-16 sm:w-16 rounded-full bg-foreground text-background hover:bg-foreground/90 hover:scale-105 transition-bounce shadow-glow"
@@ -179,6 +184,9 @@ export function NowPlaying({ onClose }: Props) {
             aria-label={isPlaying ? "Pause" : "Play"}
           >
             {isPlaying ? <Pause className="h-7 w-7 fill-current" /> : <Play className="h-7 w-7 fill-current ml-1" />}
+          </Button>
+          <Button variant="ghost" size="icon" className="hidden h-10 w-10 sm:inline-flex" onClick={() => skipBy(10)} aria-label="Forward 10 seconds">
+            <RotateCw className="h-5 w-5" />
           </Button>
           <Button variant="ghost" size="icon" className="h-12 w-12" onClick={next} aria-label="Next">
             <SkipForward className="h-7 w-7 fill-current" />
@@ -195,6 +203,12 @@ export function NowPlaying({ onClose }: Props) {
         <div className="mt-2 flex items-center justify-center gap-1">
           <SleepTimer />
           <Equalizer />
+          <Button variant="secondary" size="sm" onClick={() => setPlaybackRate(playbackRate >= 1.25 ? 1 : playbackRate + 0.25)}>
+            <Gauge className="mr-1.5 h-4 w-4" /> {playbackRate.toFixed(2)}x
+          </Button>
+          <Button variant="secondary" size="sm" onClick={stop}>
+            <Square className="mr-1.5 h-3 w-3 fill-current" /> Stop
+          </Button>
         </div>
       </div>
     </div>
