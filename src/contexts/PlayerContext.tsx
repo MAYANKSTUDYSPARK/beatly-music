@@ -36,7 +36,7 @@ interface PlayerContextValue {
 const PlayerContext = createContext<PlayerContextValue | null>(null);
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
-  const { push: pushNotification } = useNotifications();
+  const { push: pushNotification, systemPermission, requestSystemPermission } = useNotifications();
   const [queue, setQueue] = useState<Track[]>([]);
   const [index, setIndex] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -127,6 +127,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [current, index, queue.length]);
 
   const playTrack = useCallback((track: Track, newQueue?: Track[]) => {
+    if (systemPermission === "default") requestSystemPermission().catch(() => undefined);
     consecutiveFailuresRef.current = 0;
     if (newQueue && newQueue.length) {
       const i = newQueue.findIndex((t) => t.id === track.id);
@@ -145,7 +146,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       });
     }
     setIsPlaying(true);
-  }, []);
+  }, [systemPermission, requestSystemPermission]);
 
   const addToQueue = useCallback((track: Track) => {
     setQueue((q) => (q.some((t) => t.id === track.id) ? q : [...q, track]));
