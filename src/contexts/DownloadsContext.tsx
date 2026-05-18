@@ -46,13 +46,9 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
     }
     setInProgress((p) => ({ ...p, [track.id]: 1 }));
     try {
-      const url = track.streamOverride || getDownloadUrl(track.id);
+      const url = track.streamOverride || getDownloadUrl(track.id, `${track.artist} - ${track.title}`);
       if (!url) throw new Error("No stream");
-      const res = await fetch(url, {
-        headers: track.streamOverride ? undefined : {
-          "x-beatly-file-name": `${track.artist} - ${track.title}`,
-        },
-      });
+      const res = await fetch(url);
       if (!res.ok || !res.body) throw new Error("Fetch failed");
 
       const total = Number(res.headers.get("content-length") || 0);
