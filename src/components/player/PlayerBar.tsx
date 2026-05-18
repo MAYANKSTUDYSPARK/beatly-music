@@ -117,7 +117,12 @@ export function PlayerBar() {
               </SheetTrigger>
               <SheetContent side="right" className="w-full sm:max-w-md bg-card">
                 <SheetHeader>
-                  <SheetTitle>Queue</SheetTitle>
+                  <div className="flex items-center justify-between gap-3">
+                    <SheetTitle>Queue</SheetTitle>
+                    <Button variant="secondary" size="sm" onClick={clearQueue} disabled={queue.length <= 1}>
+                      Clear
+                    </Button>
+                  </div>
                 </SheetHeader>
                 <div className="mt-4 space-y-1 overflow-y-auto max-h-[calc(100vh-100px)]">
                   {queue.map((t, i) => (
@@ -134,6 +139,15 @@ export function PlayerBar() {
                         <div className="truncate text-sm">{t.title}</div>
                         <div className="truncate text-xs text-muted-foreground">{t.artist}</div>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 flex-shrink-0"
+                        onClick={(e) => { e.stopPropagation(); removeFromQueue(i); }}
+                        aria-label="Remove from queue"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Button>
                     </button>
                   ))}
                 </div>
