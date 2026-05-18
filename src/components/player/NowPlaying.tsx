@@ -7,7 +7,7 @@ import {
   Shuffle, Repeat, Repeat1, ChevronDown, Download, Loader2, Mic2, Disc3, WifiOff, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatDuration } from "@/lib/music-api";
+import { formatDuration, getDownloadUrl } from "@/lib/music-api";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Lyrics } from "./Lyrics";
@@ -37,14 +37,17 @@ export function NowPlaying({ onClose }: Props) {
   const offlineProgress = inProgress[current.id];
 
   const handleDownload = async () => {
-    if (!streamUrl) {
+    const source = current.streamOverride || (streamUrl ? getDownloadUrl(current.id, `${current.artist} - ${current.title}`) : null);
+    if (!source) {
       toast("Stream not ready yet — try again in a second");
       return;
     }
     setDownloading(true);
     try {
-      const res = await fetch(streamUrl);
+      const res = await fetch(source);
+      if (!res.ok) throw new Error("Download failed");
       const blob = await res.blob();
+      if (blob.size < 1024) throw new Error("Empty file");
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
