@@ -36,6 +36,8 @@ async function call<T>(path: string, params?: Record<string, string>): Promise<T
 
 const cache = new Map<string, { ts: number; data: unknown }>();
 const TTL = 5 * 60 * 1000;
+const streamCache = new Map<string, { ts: number; url: string | null }>();
+const STREAM_TTL = 18 * 60 * 1000;
 async function cached<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.ts < TTL) return hit.data as T;
@@ -66,12 +68,23 @@ export async function getRelated(videoId: string): Promise<Track[]> {
 }
 
 export async function getStreamUrl(videoId: string): Promise<string | null> {
+  const hit = streamCache.get(videoId);
+  if (hit && Date.now() - hit.ts < STREAM_TTL) return hit.url;
   try {
     const data = await call<{ url: string }>("/stream", { id: videoId });
-    return data.url ?? null;
+    const url = data.url ?? null;
+    streamCache.set(videoId, { ts: Date.now(), url });
+    return url;
   } catch {
+    streamCache.set(videoId, { ts: Date.now(), url: null });
     return null;
   }
+}
+
+export function getDownloadUrl(videoId: string): string {
+  const url = new URL(`${BASE}/download`);
+  url.searchParams.set("id", videoId);
+  return url.toString();
 }
 
 export function formatDuration(seconds: number): string {
