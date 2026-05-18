@@ -31,6 +31,10 @@ interface PlayerContextValue {
   toggleShuffle: () => void;
   cycleRepeat: () => void;
   addToQueue: (track: Track) => void;
+  clearQueue: () => void;
+  removeFromQueue: (queueIndex: number) => void;
+  stop: () => void;
+  skipBy: (seconds: number) => void;
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
@@ -203,14 +207,61 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
   const cycleRepeat = useCallback(() => setRepeat((r) => r === "off" ? "all" : r === "all" ? "one" : "off"), []);
 
+  const clearQueue = useCallback(() => {
+    setQueue(current ? [current] : []);
+    setIndex(current ? 0 : -1);
+  }, [current]);
+
+  const removeFromQueue = useCallback((queueIndex: number) => {
+    setQueue((q) => {
+      if (queueIndex < 0 || queueIndex >= q.length) return q;
+      const nextQueue = q.filter((_, i) => i !== queueIndex);
+      setIndex((i) => {
+        if (nextQueue.length === 0) return -1;
+        if (queueIndex < i) return i - 1;
+        if (queueIndex === i) return Math.min(i, nextQueue.length - 1);
+        return i;
+      });
+      return nextQueue;
+    });
+  }, []);
+
+  const stop = useCallback(() => {
+    const a = audioRef.current;
+    if (a) {
+      a.pause();
+      a.currentTime = 0;
+    }
+    setCurrentTime(0);
+    setIsPlaying(false);
+  }, []);
+
+  const skipBy = useCallback((seconds: number) => {
+    const a = audioRef.current;
+    if (!a) return;
+    const nextTime = Math.min(Math.max(a.currentTime + seconds, 0), duration || Number.MAX_SAFE_INTEGER);
+    a.currentTime = nextTime;
+    setCurrentTime(nextTime);
+  }, [duration]);
+
   const handleEnded = useCallback(() => {
+    const expectedDuration = duration || current?.duration || 0;
+    if (expectedDuration > 0 && currentTime < expectedDuration - 2) {
+      setIsPlaying(false);
+      pushNotification({
+        title: "Playback paused",
+        body: "Stream ended early. Tap play to resume this same song.",
+        image: current?.thumbnail,
+      });
+      return;
+    }
     if (repeat === "one" && audioRef.current) {
       audioRef.current.currentTime = 0;
       audioRef.current.play().catch(() => undefined);
     } else {
       next();
     }
-  }, [repeat, next]);
+  }, [repeat, next, duration, current, currentTime, pushNotification]);
 
   // Media Session metadata (lock-screen controls + system notification)
   useEffect(() => {
@@ -225,12 +276,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     });
     navigator.mediaSession.setActionHandler("play", () => audioRef.current?.play());
     navigator.mediaSession.setActionHandler("pause", () => audioRef.current?.pause());
+    navigator.mediaSession.setActionHandler("stop", stop);
     navigator.mediaSession.setActionHandler("nexttrack", next);
     navigator.mediaSession.setActionHandler("previoustrack", prev);
+    navigator.mediaSession.setActionHandler("seekbackward", (d) => skipBy(-(d.seekOffset || 10)));
+    navigator.mediaSession.setActionHandler("seekforward", (d) => skipBy(d.seekOffset || 10));
     navigator.mediaSession.setActionHandler("seekto", (d) => {
       if (audioRef.current && d.seekTime != null) audioRef.current.currentTime = d.seekTime;
     });
-  }, [current, next, prev]);
+  }, [current, next, prev, stop, skipBy]);
 
   // Keep lock-screen progress synced
   useEffect(() => {
@@ -294,8 +348,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     current, queue, index, isPlaying, isLoading, progress, currentTime, duration,
     volume, shuffle, repeat, audioRef, streamUrl, playbackRate, setPlaybackRate,
     playTrack, togglePlay, next, prev, seekTo, setVolume,
-    toggleShuffle, cycleRepeat, addToQueue,
-  }), [current, queue, index, isPlaying, isLoading, progress, currentTime, duration, volume, shuffle, repeat, streamUrl, playbackRate, setPlaybackRate, playTrack, togglePlay, next, prev, seekTo, setVolume, toggleShuffle, cycleRepeat, addToQueue]);
+    toggleShuffle, cycleRepeat, addToQueue, clearQueue, removeFromQueue, stop, skipBy,
+  }), [current, queue, index, isPlaying, isLoading, progress, currentTime, duration, volume, shuffle, repeat, streamUrl, playbackRate, setPlaybackRate, playTrack, togglePlay, next, prev, seekTo, setVolume, toggleShuffle, cycleRepeat, addToQueue, clearQueue, removeFromQueue, stop, skipBy]);
 
   return (
     <PlayerContext.Provider value={value}>
