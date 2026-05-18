@@ -158,6 +158,20 @@ export function PlayerBar() {
               <Heart className={cn("h-4 w-4", liked && "fill-primary text-primary")} />
             </Button>
 
+            <Button variant="ghost" size="icon" className="h-8 w-8 hidden lg:inline-flex" onClick={stop} aria-label="Stop playback">
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="hidden h-8 gap-1 px-2 text-xs font-bold lg:inline-flex"
+              onClick={() => setPlaybackRate(playbackRate >= 1.25 ? 1 : playbackRate + 0.25)}
+              aria-label="Playback speed"
+            >
+              <Gauge className="h-3.5 w-3.5" /> {playbackRate.toFixed(2)}x
+            </Button>
+
             <div className="hidden items-center gap-2 sm:flex w-32">
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setMuted((m) => !m); setVolume(muted ? volume || 70 : 0); }}>
                 {muted || volume === 0 ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
