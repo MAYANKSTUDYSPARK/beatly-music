@@ -31,6 +31,7 @@ interface NotificationsContextValue {
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null);
 const MAX_NOTIFICATIONS = 30;
+const HOURLY_REMINDER_KEY = "beatly:last-hourly-reminder";
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -85,7 +86,40 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     if (!("Notification" in window)) return;
     const result = await Notification.requestPermission();
     setSystemPermission(result);
-    if (result === "granted") toast.success("Notifications enabled");
+    if (result === "granted") {
+      toast.success("Beatly notifications enabled");
+      try {
+        new Notification("Beatly is ready 🎧", {
+          body: "Song updates, play controls and music reminders are enabled.",
+          icon: "/icon-512.png",
+          silent: true,
+        });
+      } catch {
+        // ignore notification restrictions
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const tick = () => {
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+      const last = Number(localStorage.getItem(HOURLY_REMINDER_KEY) || "0");
+      if (Date.now() - last < 60 * 60 * 1000) return;
+      localStorage.setItem(HOURLY_REMINDER_KEY, String(Date.now()));
+      const title = "Beatly Mix is waiting 🎶";
+      const body = "Free songs, trending playlists and podcasts are ready to play.";
+      setNotifications((prev) => [{
+        id: `${Date.now()}-hourly`, title, body, image: "/icon-512.png", timestamp: Date.now(), read: false,
+      }, ...prev].slice(0, MAX_NOTIFICATIONS));
+      try {
+        new Notification(title, { body, icon: "/icon-512.png", silent: true });
+      } catch {
+        toast(title, { description: body });
+      }
+    };
+    tick();
+    const timer = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const triggerInstall = useCallback(async () => {
