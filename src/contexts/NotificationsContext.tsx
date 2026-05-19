@@ -94,12 +94,24 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const clear = useCallback(() => setNotifications([]), []);
 
   const requestSystemPermission = useCallback(async () => {
+    const nativeShown = await showNativeNotification("Beatly is ready 🎧", "Song updates, play controls and music reminders are enabled.");
+    try {
+      const { Capacitor } = await import("@capacitor/core");
+      if (Capacitor.isNativePlatform()) {
+        const { LocalNotifications } = await import("@capacitor/local-notifications");
+        await LocalNotifications.requestPermissions();
+        toast.success("Beatly notifications enabled");
+        return;
+      }
+    } catch {
+      // continue with browser notification permission
+    }
     if (!("Notification" in window)) return;
     const result = await Notification.requestPermission();
     setSystemPermission(result);
     if (result === "granted") {
       toast.success("Beatly notifications enabled");
-      await showNativeNotification("Beatly is ready 🎧", "Song updates, play controls and music reminders are enabled.");
+      if (nativeShown) return;
       try {
         new Notification("Beatly is ready 🎧", {
           body: "Song updates, play controls and music reminders are enabled.",
