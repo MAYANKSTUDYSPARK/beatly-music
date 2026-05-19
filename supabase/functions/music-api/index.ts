@@ -421,24 +421,47 @@ Deno.serve(async (req) => {
       // Always return 200 — null url signals "unavailable" without a noisy 404.
       return json({ url: stream ? streamApiUrl(req, id) : null, available: !!stream, proxied: true });
     }
+    if (sub === "stream-file") {
+      const id = url.searchParams.get("id") ?? "";
+      if (!id) return err("id required", 400);
+      const stream = await getStream(id);
+      if (!stream) return err("Stream unavailable for this track", 404);
+      const upstream = await fetch(stream.url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          Accept: "audio/*,video/mp4,*/*;q=0.8",
+          Range: req.headers.get("range") ?? "bytes=0-",
+        },
+      });
+      if (!upstream.ok && upstream.status !== 206) return err("Stream source failed", 502);
+      const headers = new Headers(corsHeaders);
+      headers.set("Content-Type", upstream.headers.get("content-type") || stream.mimeType || "audio/mp4");
+      headers.set("Accept-Ranges", upstream.headers.get("accept-ranges") || "bytes");
+      headers.set("Cache-Control", "public, max-age=300");
+      for (const h of ["content-length", "content-range"]) {
+        const value = upstream.headers.get(h);
+        if (value) headers.set(h, value);
+      }
+      return new Response(upstream.body, { status: upstream.status, headers });
+    }
     if (sub === "download") {
       const id = url.searchParams.get("id") ?? "";
       const name = safeFileName(url.searchParams.get("name") ?? `Beatly-${id}`);
       if (!id) return err("id required", 400);
-      const streamUrl = await getStreamUrl(id);
-      if (!streamUrl) return err("Download unavailable for this track", 404);
-      const upstream = await fetch(streamUrl, {
+      const stream = await getStream(id);
+      if (!stream) return err("Download unavailable for this track", 404);
+      const upstream = await fetch(stream.url, {
         headers: {
           "User-Agent": "Mozilla/5.0",
-          Accept: "audio/*,*/*;q=0.8",
+          Accept: "audio/*,video/mp4,*/*;q=0.8",
           Range: req.headers.get("range") ?? "bytes=0-",
         },
       });
       if (!upstream.ok && upstream.status !== 206) return err("Download source failed", 502);
       const headers = new Headers(corsHeaders);
-      const contentType = upstream.headers.get("content-type") || "audio/mp4";
+      const contentType = upstream.headers.get("content-type") || stream.mimeType || "audio/mp4";
       headers.set("Content-Type", contentType);
-      headers.set("Content-Disposition", `attachment; filename="${name}.m4a"`);
+      headers.set("Content-Disposition", `attachment; filename="${name}.${contentType.includes("mp4") ? "mp4" : "m4a"}"`);
       headers.set("Accept-Ranges", upstream.headers.get("accept-ranges") || "bytes");
       headers.set("Cache-Control", "private, max-age=300");
       for (const h of ["content-length", "content-range"]) {
