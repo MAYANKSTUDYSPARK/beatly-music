@@ -6,7 +6,7 @@
 //   GET  /music-api/stream?id=<videoId>           -> redirects to audio stream URL
 //   GET  /music-api/related?id=<videoId>          -> related/up-next songs
 
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
 const YT_MUSIC_BASE = "https://music.youtube.com/youtubei/v1";
 const YT_BASE = "https://www.youtube.com/youtubei/v1";
@@ -38,6 +38,24 @@ interface Track {
   artist: string;
   duration: number;
   thumbnail: string;
+}
+
+interface StreamResult {
+  url: string;
+  proxied?: boolean;
+  mimeType?: string;
+}
+
+async function isReachableMedia(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0", Accept: "audio/*,video/mp4,*/*;q=0.8", Range: "bytes=0-1023" },
+      signal: AbortSignal.timeout(6000),
+    });
+    return res.ok || res.status === 206;
+  } catch {
+    return false;
+  }
 }
 
 function getThumb(thumbs: Array<{ url: string }> | undefined, fallbackId?: string): string {
@@ -271,7 +289,7 @@ const STREAM_CLIENTS: StreamClient[] = [
   },
 ];
 
-async function tryClient(videoId: string, c: typeof STREAM_CLIENTS[number]): Promise<string | null> {
+async function tryClient(videoId: string, c: typeof STREAM_CLIENTS[number]): Promise<StreamResult | null> {
   try {
     const res = await fetch(`${YT_BASE}/player?key=${c.key}&prettyPrint=false`, {
       method: "POST",
@@ -301,7 +319,7 @@ async function tryClient(videoId: string, c: typeof STREAM_CLIENTS[number]): Pro
     const audio = formats
       .filter((f) => (f.mimeType ?? "").startsWith("audio/") && f.url) // require unsigned url
       .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
-    return audio?.url ?? null;
+    return audio?.url ? { url: audio.url, mimeType: audio.mimeType ?? "audio/mp4" } : null;
   } catch (e) {
     console.log(`[stream] ${c.name} threw:`, e instanceof Error ? e.message : e);
     return null;
@@ -318,7 +336,7 @@ const PIPED_INSTANCES = [
   "https://pipedapi.r4fo.com",
 ];
 
-async function getStreamFromPiped(videoId: string): Promise<string | null> {
+async function getStreamFromPiped(videoId: string): Promise<StreamResult | null> {
   for (const base of PIPED_INSTANCES) {
     try {
       const res = await fetch(`${base}/streams/${videoId}`, {
@@ -337,7 +355,19 @@ async function getStreamFromPiped(videoId: string): Promise<string | null> {
         .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
       if (best?.url) {
         console.log(`[piped] hit ${base} ${videoId}`);
-        return best.url;
+        const candidate = { url: best.url, mimeType: best.mimeType ?? "audio/mp4" };
+        if (await isReachableMedia(candidate.url)) return candidate;
+      }
+      // Some YouTube Music tracks only expose muxed MP4 streams via public proxies.
+      // HTMLAudio can play the audio track from these MP4 files, so use them as a reliable fallback.
+      const videos: any[] = data?.videoStreams ?? [];
+      const muxed = videos
+        .filter((v) => v.url && v.videoOnly !== true && (v.mimeType ?? "").includes("mp4"))
+        .sort((a, b) => (Number(a.contentLength || 0) || 0) - (Number(b.contentLength || 0) || 0))[0];
+      if (muxed?.url) {
+        console.log(`[piped] muxed fallback ${base} ${videoId}`);
+        const candidate = { url: muxed.url, mimeType: muxed.mimeType ?? "video/mp4" };
+        if (await isReachableMedia(candidate.url)) return candidate;
       }
     } catch (e) {
       console.log(`[piped] ${base} threw:`, e instanceof Error ? e.message : e);
@@ -346,16 +376,25 @@ async function getStreamFromPiped(videoId: string): Promise<string | null> {
   return null;
 }
 
-async function getStreamUrl(videoId: string): Promise<string | null> {
+async function getStream(videoId: string): Promise<StreamResult | null> {
   // Try Piped first (most reliable on data-center IPs).
   const piped = await getStreamFromPiped(videoId);
   if (piped) return piped;
   // Fall back to direct InnerTube (works for some unrestricted videos).
   for (const c of STREAM_CLIENTS) {
-    const url = await tryClient(videoId, c);
-    if (url) return url;
+    const stream = await tryClient(videoId, c);
+    if (stream) return stream;
   }
   return null;
+}
+
+function streamApiUrl(req: Request, videoId: string): string {
+  const url = new URL(req.url);
+  url.protocol = "https:";
+  url.search = "";
+  url.pathname = "/functions/v1/music-api/stream-file";
+  url.searchParams.set("id", videoId);
+  return url.toString();
 }
 
 Deno.serve(async (req) => {
@@ -393,28 +432,51 @@ Deno.serve(async (req) => {
     if (sub === "stream") {
       const id = url.searchParams.get("id") ?? "";
       if (!id) return err("id required", 400);
-      const streamUrl = await getStreamUrl(id);
+      const stream = await getStream(id);
       // Always return 200 — null url signals "unavailable" without a noisy 404.
-      return json({ url: streamUrl, available: !!streamUrl });
+      return json({ url: stream ? streamApiUrl(req, id) : null, available: !!stream, proxied: true });
+    }
+    if (sub === "stream-file") {
+      const id = url.searchParams.get("id") ?? "";
+      if (!id) return err("id required", 400);
+      const stream = await getStream(id);
+      if (!stream) return err("Stream unavailable for this track", 404);
+      const upstream = await fetch(stream.url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          Accept: "audio/*,video/mp4,*/*;q=0.8",
+          Range: req.headers.get("range") ?? "bytes=0-",
+        },
+      });
+      if (!upstream.ok && upstream.status !== 206) return err("Stream source failed", 502);
+      const headers = new Headers(corsHeaders);
+      headers.set("Content-Type", upstream.headers.get("content-type") || stream.mimeType || "audio/mp4");
+      headers.set("Accept-Ranges", upstream.headers.get("accept-ranges") || "bytes");
+      headers.set("Cache-Control", "public, max-age=300");
+      for (const h of ["content-length", "content-range"]) {
+        const value = upstream.headers.get(h);
+        if (value) headers.set(h, value);
+      }
+      return new Response(upstream.body, { status: upstream.status, headers });
     }
     if (sub === "download") {
       const id = url.searchParams.get("id") ?? "";
       const name = safeFileName(url.searchParams.get("name") ?? `Beatly-${id}`);
       if (!id) return err("id required", 400);
-      const streamUrl = await getStreamUrl(id);
-      if (!streamUrl) return err("Download unavailable for this track", 404);
-      const upstream = await fetch(streamUrl, {
+      const stream = await getStream(id);
+      if (!stream) return err("Download unavailable for this track", 404);
+      const upstream = await fetch(stream.url, {
         headers: {
           "User-Agent": "Mozilla/5.0",
-          Accept: "audio/*,*/*;q=0.8",
+          Accept: "audio/*,video/mp4,*/*;q=0.8",
           Range: req.headers.get("range") ?? "bytes=0-",
         },
       });
       if (!upstream.ok && upstream.status !== 206) return err("Download source failed", 502);
       const headers = new Headers(corsHeaders);
-      const contentType = upstream.headers.get("content-type") || "audio/mp4";
+      const contentType = upstream.headers.get("content-type") || stream.mimeType || "audio/mp4";
       headers.set("Content-Type", contentType);
-      headers.set("Content-Disposition", `attachment; filename="${name}.m4a"`);
+      headers.set("Content-Disposition", `attachment; filename="${name}.${contentType.includes("mp4") ? "mp4" : "m4a"}"`);
       headers.set("Accept-Ranges", upstream.headers.get("accept-ranges") || "bytes");
       headers.set("Cache-Control", "private, max-age=300");
       for (const h of ["content-length", "content-range"]) {
