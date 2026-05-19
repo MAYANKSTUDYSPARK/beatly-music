@@ -46,6 +46,18 @@ interface StreamResult {
   mimeType?: string;
 }
 
+async function isReachableMedia(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0", Accept: "audio/*,video/mp4,*/*;q=0.8", Range: "bytes=0-1023" },
+      signal: AbortSignal.timeout(6000),
+    });
+    return res.ok || res.status === 206;
+  } catch {
+    return false;
+  }
+}
+
 function getThumb(thumbs: Array<{ url: string }> | undefined, fallbackId?: string): string {
   if (thumbs?.length) {
     // pick the largest
@@ -343,7 +355,8 @@ async function getStreamFromPiped(videoId: string): Promise<StreamResult | null>
         .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
       if (best?.url) {
         console.log(`[piped] hit ${base} ${videoId}`);
-        return { url: best.url, mimeType: best.mimeType ?? "audio/mp4" };
+        const candidate = { url: best.url, mimeType: best.mimeType ?? "audio/mp4" };
+        if (await isReachableMedia(candidate.url)) return candidate;
       }
       // Some YouTube Music tracks only expose muxed MP4 streams via public proxies.
       // HTMLAudio can play the audio track from these MP4 files, so use them as a reliable fallback.
@@ -353,7 +366,8 @@ async function getStreamFromPiped(videoId: string): Promise<StreamResult | null>
         .sort((a, b) => (Number(a.contentLength || 0) || 0) - (Number(b.contentLength || 0) || 0))[0];
       if (muxed?.url) {
         console.log(`[piped] muxed fallback ${base} ${videoId}`);
-        return { url: muxed.url, mimeType: muxed.mimeType ?? "video/mp4" };
+        const candidate = { url: muxed.url, mimeType: muxed.mimeType ?? "video/mp4" };
+        if (await isReachableMedia(candidate.url)) return candidate;
       }
     } catch (e) {
       console.log(`[piped] ${base} threw:`, e instanceof Error ? e.message : e);
