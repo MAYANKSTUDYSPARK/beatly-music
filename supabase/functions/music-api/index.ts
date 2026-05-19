@@ -6,7 +6,7 @@
 //   GET  /music-api/stream?id=<videoId>           -> redirects to audio stream URL
 //   GET  /music-api/related?id=<videoId>          -> related/up-next songs
 
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
 const YT_MUSIC_BASE = "https://music.youtube.com/youtubei/v1";
 const YT_BASE = "https://www.youtube.com/youtubei/v1";
@@ -38,6 +38,12 @@ interface Track {
   artist: string;
   duration: number;
   thumbnail: string;
+}
+
+interface StreamResult {
+  url: string;
+  proxied?: boolean;
+  mimeType?: string;
 }
 
 function getThumb(thumbs: Array<{ url: string }> | undefined, fallbackId?: string): string {
@@ -271,7 +277,7 @@ const STREAM_CLIENTS: StreamClient[] = [
   },
 ];
 
-async function tryClient(videoId: string, c: typeof STREAM_CLIENTS[number]): Promise<string | null> {
+async function tryClient(videoId: string, c: typeof STREAM_CLIENTS[number]): Promise<StreamResult | null> {
   try {
     const res = await fetch(`${YT_BASE}/player?key=${c.key}&prettyPrint=false`, {
       method: "POST",
@@ -301,7 +307,7 @@ async function tryClient(videoId: string, c: typeof STREAM_CLIENTS[number]): Pro
     const audio = formats
       .filter((f) => (f.mimeType ?? "").startsWith("audio/") && f.url) // require unsigned url
       .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
-    return audio?.url ?? null;
+    return audio?.url ? { url: audio.url, mimeType: audio.mimeType ?? "audio/mp4" } : null;
   } catch (e) {
     console.log(`[stream] ${c.name} threw:`, e instanceof Error ? e.message : e);
     return null;
@@ -318,7 +324,7 @@ const PIPED_INSTANCES = [
   "https://pipedapi.r4fo.com",
 ];
 
-async function getStreamFromPiped(videoId: string): Promise<string | null> {
+async function getStreamFromPiped(videoId: string): Promise<StreamResult | null> {
   for (const base of PIPED_INSTANCES) {
     try {
       const res = await fetch(`${base}/streams/${videoId}`, {
@@ -337,7 +343,17 @@ async function getStreamFromPiped(videoId: string): Promise<string | null> {
         .sort((a, b) => (b.bitrate ?? 0) - (a.bitrate ?? 0))[0];
       if (best?.url) {
         console.log(`[piped] hit ${base} ${videoId}`);
-        return best.url;
+        return { url: best.url, mimeType: best.mimeType ?? "audio/mp4" };
+      }
+      // Some YouTube Music tracks only expose muxed MP4 streams via public proxies.
+      // HTMLAudio can play the audio track from these MP4 files, so use them as a reliable fallback.
+      const videos: any[] = data?.videoStreams ?? [];
+      const muxed = videos
+        .filter((v) => v.url && v.videoOnly !== true && (v.mimeType ?? "").includes("mp4"))
+        .sort((a, b) => (Number(a.contentLength || 0) || 0) - (Number(b.contentLength || 0) || 0))[0];
+      if (muxed?.url) {
+        console.log(`[piped] muxed fallback ${base} ${videoId}`);
+        return { url: muxed.url, mimeType: muxed.mimeType ?? "video/mp4" };
       }
     } catch (e) {
       console.log(`[piped] ${base} threw:`, e instanceof Error ? e.message : e);
