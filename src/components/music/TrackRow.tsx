@@ -1,4 +1,4 @@
-import { Track, formatDuration, getStreamUrl } from "@/lib/music-api";
+import { Track, formatDuration, getDownloadUrl, getMusicApiHeaders } from "@/lib/music-api";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { Heart, Play, Pause, MoreHorizontal, Download, ListPlus, User } from "lucide-react";
@@ -44,23 +44,21 @@ export function TrackRow({ track, index, queue, showIndex }: Props) {
     setDownloading(true);
     toast("Preparing download…");
     try {
-      const url = await getStreamUrl(track.id);
-      if (!url) {
-        toast("Stream unavailable");
-        return;
-      }
-      const res = await fetch(url);
+      const url = getDownloadUrl(track.id, `${track.artist} - ${track.title}`);
+      const res = await fetch(url, { headers: getMusicApiHeaders() });
+      if (!res.ok) throw new Error("Download failed");
       const blob = await res.blob();
+      if (blob.size < 1024) throw new Error("Empty file");
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `${track.artist} - ${track.title}.m4a`.replace(/[/\\?%*:|"<>]/g, "_");
+      link.download = `${track.artist} - ${track.title}.mp4`.replace(/[/\\?%*:|"<>]/g, "_");
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(link.href);
       toast("Download started");
     } catch {
-      toast("Download failed");
+      toast("Download failed — this song source is blocked. Try another track.");
     } finally {
       setDownloading(false);
     }
