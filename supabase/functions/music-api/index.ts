@@ -390,8 +390,9 @@ async function getStream(videoId: string): Promise<StreamResult | null> {
 
 function streamApiUrl(req: Request, videoId: string): string {
   const url = new URL(req.url);
+  url.protocol = "https:";
   url.search = "";
-  url.pathname = url.pathname.replace(/\/[^/]*$/, "/stream-file");
+  url.pathname = "/functions/v1/music-api/stream-file";
   url.searchParams.set("id", videoId);
   return url.toString();
 }
