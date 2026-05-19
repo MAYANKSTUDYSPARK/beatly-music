@@ -362,16 +362,24 @@ async function getStreamFromPiped(videoId: string): Promise<StreamResult | null>
   return null;
 }
 
-async function getStreamUrl(videoId: string): Promise<string | null> {
+async function getStream(videoId: string): Promise<StreamResult | null> {
   // Try Piped first (most reliable on data-center IPs).
   const piped = await getStreamFromPiped(videoId);
   if (piped) return piped;
   // Fall back to direct InnerTube (works for some unrestricted videos).
   for (const c of STREAM_CLIENTS) {
-    const url = await tryClient(videoId, c);
-    if (url) return url;
+    const stream = await tryClient(videoId, c);
+    if (stream) return stream;
   }
   return null;
+}
+
+function streamApiUrl(req: Request, videoId: string): string {
+  const url = new URL(req.url);
+  url.search = "";
+  url.pathname = url.pathname.replace(/\/[^/]*$/, "/stream-file");
+  url.searchParams.set("id", videoId);
+  return url.toString();
 }
 
 Deno.serve(async (req) => {
@@ -409,9 +417,9 @@ Deno.serve(async (req) => {
     if (sub === "stream") {
       const id = url.searchParams.get("id") ?? "";
       if (!id) return err("id required", 400);
-      const streamUrl = await getStreamUrl(id);
+      const stream = await getStream(id);
       // Always return 200 — null url signals "unavailable" without a noisy 404.
-      return json({ url: streamUrl, available: !!streamUrl });
+      return json({ url: stream ? streamApiUrl(req, id) : null, available: !!stream, proxied: true });
     }
     if (sub === "download") {
       const id = url.searchParams.get("id") ?? "";
