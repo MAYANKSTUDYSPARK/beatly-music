@@ -1,6 +1,20 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+async function showNativeNotification(title: string, body?: string) {
+  try {
+    const { Capacitor } = await import("@capacitor/core");
+    if (!Capacitor.isNativePlatform()) return false;
+    const { LocalNotifications } = await import("@capacitor/local-notifications");
+    await LocalNotifications.schedule({
+      notifications: [{ id: Date.now() % 2147483647, title, body, schedule: { at: new Date(Date.now() + 250) } }],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface AppNotification {
   id: string;
   title: string;
@@ -62,18 +76,15 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     // In-app toast
     toast(n.title, { description: n.body });
 
-    // System notification (if permitted & page hidden)
-    if (
-      "Notification" in window &&
-      Notification.permission === "granted" &&
-      document.visibilityState === "hidden"
-    ) {
+    // System/native notification outside the app UI when permission is granted.
+    showNativeNotification(n.title, n.body).then((shown) => {
+      if (shown || !("Notification" in window) || Notification.permission !== "granted") return;
       try {
         new Notification(n.title, { body: n.body, icon: n.image, silent: true });
       } catch {
         // ignore — some browsers require service worker for notifications
       }
-    }
+    });
   }, []);
 
   const markAllRead = useCallback(() => {
@@ -88,6 +99,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     setSystemPermission(result);
     if (result === "granted") {
       toast.success("Beatly notifications enabled");
+      await showNativeNotification("Beatly is ready 🎧", "Song updates, play controls and music reminders are enabled.");
       try {
         new Notification("Beatly is ready 🎧", {
           body: "Song updates, play controls and music reminders are enabled.",
