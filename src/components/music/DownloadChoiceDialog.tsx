@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Loader2, Smartphone, WifiOff } from "lucide-react";
+import { Loader2, Smartphone, WifiOff } from "lucide-react";
 import type { Track } from "@/lib/music-api";
 import { getDownloadUrl, getMusicApiHeaders } from "@/lib/music-api";
 import { useDownloads } from "@/contexts/DownloadsContext";

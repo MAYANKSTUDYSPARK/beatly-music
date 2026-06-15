@@ -3,10 +3,14 @@ import { Home, Search, Flame, Download, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePlayer } from "@/contexts/PlayerContext";
 
-const items = [
+type MobileNavItem =
+  | { to: string; label: string; icon: typeof Home; end?: boolean }
+  | { href: string; label: string; icon: typeof Send };
+
+const items: MobileNavItem[] = [
   { to: "/", label: "Home", icon: Home, end: true },
   { to: "/search", label: "Search", icon: Search },
-  { href: "https://telegram.me/scholarversepro_network", label: "TG", icon: Send, featured: true },
+  { href: "https://telegram.me/scholarversepro_network", label: "TG", icon: Send },
   { to: "/trending", label: "Trending", icon: Flame },
   { to: "/downloads", label: "Saved", icon: Download },
 ];
