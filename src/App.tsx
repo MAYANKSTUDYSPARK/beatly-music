@@ -9,7 +9,6 @@ import { NotificationsProvider } from "@/contexts/NotificationsContext";
 import { DownloadsProvider } from "@/contexts/DownloadsContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { RecentTracker } from "@/components/player/RecentTracker";
-import { TelegramFab } from "@/components/TelegramFab";
 import { InstallPrompt } from "@/components/InstallPrompt";
 import Home from "./pages/Home";
 import Search from "./pages/Search";
@@ -36,7 +35,6 @@ const App = () => (
               <PlayerProvider>
                 <RecentTracker />
                 <InstallPrompt />
-                <TelegramFab />
                 <Routes>
                   <Route element={<AppLayout />}>
                     <Route path="/" element={<Home />} />

@@ -329,12 +329,14 @@ async function tryClient(videoId: string, c: typeof STREAM_CLIENTS[number]): Pro
 // Public Piped/Invidious instances that proxy YouTube and bypass data-center blocks.
 // These return JSON with audio stream URLs we can serve directly.
 const PIPED_INSTANCES = [
-  "https://pipedapi.kavin.rocks",
-  "https://pipedapi.adminforge.de",
   "https://api.piped.private.coffee",
+  "https://pipedapi.leptons.xyz",
+  "https://pipedapi-libre.kavin.rocks",
+  "https://pipedapi.kavin.rocks",
   "https://pipedapi.reallyaweso.me",
-  "https://pipedapi.r4fo.com",
 ];
+const STREAM_RESULT_CACHE = new Map<string, { expiresAt: number; stream: StreamResult | null }>();
+const STREAM_RESULT_TTL = 8 * 60 * 1000;
 
 async function getStreamFromPiped(videoId: string): Promise<StreamResult | null> {
   for (const base of PIPED_INSTANCES) {
@@ -377,14 +379,23 @@ async function getStreamFromPiped(videoId: string): Promise<StreamResult | null>
 }
 
 async function getStream(videoId: string): Promise<StreamResult | null> {
+  const cached = STREAM_RESULT_CACHE.get(videoId);
+  if (cached && cached.expiresAt > Date.now()) return cached.stream;
   // Try Piped first (most reliable on data-center IPs).
   const piped = await getStreamFromPiped(videoId);
-  if (piped) return piped;
+  if (piped) {
+    STREAM_RESULT_CACHE.set(videoId, { expiresAt: Date.now() + STREAM_RESULT_TTL, stream: piped });
+    return piped;
+  }
   // Fall back to direct InnerTube (works for some unrestricted videos).
   for (const c of STREAM_CLIENTS) {
     const stream = await tryClient(videoId, c);
-    if (stream) return stream;
+    if (stream) {
+      STREAM_RESULT_CACHE.set(videoId, { expiresAt: Date.now() + STREAM_RESULT_TTL, stream });
+      return stream;
+    }
   }
+  STREAM_RESULT_CACHE.set(videoId, { expiresAt: Date.now() + 60_000, stream: null });
   return null;
 }
 
@@ -445,7 +456,7 @@ Deno.serve(async (req) => {
         headers: {
           "User-Agent": "Mozilla/5.0",
           Accept: "audio/*,video/mp4,*/*;q=0.8",
-          Range: req.headers.get("range") ?? "bytes=0-",
+          Range: "bytes=0-",
         },
       });
       if (!upstream.ok && upstream.status !== 206) return err("Stream source failed", 502);
@@ -469,7 +480,7 @@ Deno.serve(async (req) => {
         headers: {
           "User-Agent": "Mozilla/5.0",
           Accept: "audio/*,video/mp4,*/*;q=0.8",
-          Range: req.headers.get("range") ?? "bytes=0-",
+          Range: "bytes=0-",
         },
       });
       if (!upstream.ok && upstream.status !== 206) return err("Download source failed", 502);
