@@ -5,7 +5,6 @@ import { Heart, Play, Pause, MoreHorizontal, Download, ListPlus, User } from "lu
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
 import { useState } from "react";
 import { DownloadChoiceDialog } from "./DownloadChoiceDialog";
 import {
