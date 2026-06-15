@@ -1,4 +1,4 @@
-import { Track, formatDuration, getDownloadUrl, getMusicApiHeaders } from "@/lib/music-api";
+import { Track, formatDuration } from "@/lib/music-api";
 import { usePlayer } from "@/contexts/PlayerContext";
 import { useLibrary } from "@/contexts/LibraryContext";
 import { Heart, Play, Pause, MoreHorizontal, Download, ListPlus, User } from "lucide-react";
@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useState } from "react";
+import { DownloadChoiceDialog } from "./DownloadChoiceDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,7 +32,7 @@ export function TrackRow({ track, index, queue, showIndex }: Props) {
   const { current, isPlaying, playTrack, togglePlay, addToQueue } = usePlayer();
   const { isLiked, toggleLike, playlists, addToPlaylist, createPlaylist } = useLibrary();
   const navigate = useNavigate();
-  const [downloading, setDownloading] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const active = current?.id === track.id;
   const liked = isLiked(track.id);
 
@@ -40,31 +41,9 @@ export function TrackRow({ track, index, queue, showIndex }: Props) {
     else playTrack(track, queue);
   };
 
-  const handleDownload = async () => {
-    setDownloading(true);
-    toast("Preparing download…");
-    try {
-      const url = getDownloadUrl(track.id, `${track.artist} - ${track.title}`);
-      const res = await fetch(url, { headers: getMusicApiHeaders() });
-      if (!res.ok) throw new Error("Download failed");
-      const blob = await res.blob();
-      if (blob.size < 1024) throw new Error("Empty file");
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `${track.artist} - ${track.title}.mp4`.replace(/[/\\?%*:|"<>]/g, "_");
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(link.href);
-      toast("Download started");
-    } catch {
-      toast("Download failed — this song source is blocked. Try another track.");
-    } finally {
-      setDownloading(false);
-    }
-  };
-
   return (
+    <>
+    <DownloadChoiceDialog track={track} open={downloadOpen} onOpenChange={setDownloadOpen} />
     <div
       className={cn(
         "group grid grid-cols-[40px_1fr_auto] sm:grid-cols-[40px_1fr_auto_auto] items-center gap-3 rounded-lg px-2 sm:px-3 py-2 hover:bg-secondary/60 transition-smooth",
@@ -137,8 +116,8 @@ export function TrackRow({ track, index, queue, showIndex }: Props) {
             <DropdownMenuItem onClick={() => addToQueue(track)}>
               <ListPlus className="h-4 w-4 mr-2" /> Add to queue
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleDownload} disabled={downloading}>
-              <Download className="h-4 w-4 mr-2" /> {downloading ? "Downloading…" : "Download"}
+            <DropdownMenuItem onClick={() => setDownloadOpen(true)}>
+              <Download className="h-4 w-4 mr-2" /> Download
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate(`/artist/${encodeURIComponent(primaryArtist(track.artist))}`)}>
               <User className="h-4 w-4 mr-2" /> Go to artist
@@ -166,5 +145,6 @@ export function TrackRow({ track, index, queue, showIndex }: Props) {
         </DropdownMenu>
       </div>
     </div>
+    </>
   );
 }

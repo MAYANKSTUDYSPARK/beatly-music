@@ -4,18 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import {
   Play, Pause, SkipBack, SkipForward, Heart,
-  Shuffle, Repeat, Repeat1, ChevronDown, Download, Loader2, Mic2, Disc3, WifiOff, Check,
+  Shuffle, Repeat, Repeat1, ChevronDown, Download, Loader2, Mic2, Disc3, Check,
   Gauge, RotateCcw, RotateCw, Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatDuration, getDownloadUrl, getMusicApiHeaders } from "@/lib/music-api";
+import { formatDuration } from "@/lib/music-api";
 import { useState } from "react";
-import { toast } from "sonner";
 import { Lyrics } from "./Lyrics";
 import { SleepTimer } from "./SleepTimer";
 import { Equalizer } from "./Equalizer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDownloads } from "@/contexts/DownloadsContext";
+import { DownloadChoiceDialog } from "@/components/music/DownloadChoiceDialog";
 
 interface Props {
   onClose: () => void;
@@ -29,42 +29,14 @@ export function NowPlaying({ onClose }: Props) {
     playbackRate, setPlaybackRate, skipBy, stop,
   } = usePlayer();
   const { isLiked, toggleLike } = useLibrary();
-  const { isDownloaded, downloadTrack, inProgress } = useDownloads();
-  const [downloading, setDownloading] = useState(false);
+  const { isDownloaded, inProgress } = useDownloads();
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const [tab, setTab] = useState<"cover" | "lyrics">("cover");
 
   if (!current) return null;
   const liked = isLiked(current.id);
   const saved = isDownloaded(current.id);
   const offlineProgress = inProgress[current.id];
-
-  const handleDownload = async () => {
-    const source = current.streamOverride || (streamUrl ? getDownloadUrl(current.id, `${current.artist} - ${current.title}`) : null);
-    if (!source) {
-      toast("Stream not ready yet — try again in a second");
-      return;
-    }
-    setDownloading(true);
-    try {
-      const res = await fetch(source, { headers: current.streamOverride ? undefined : getMusicApiHeaders() });
-      if (!res.ok) throw new Error("Download failed");
-      const blob = await res.blob();
-      if (blob.size < 1024) throw new Error("Empty file");
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${current.artist} - ${current.title}.m4a`.replace(/[/\\?%*:|"<>]/g, "_");
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      toast("Download started");
-    } catch {
-      toast("Download failed");
-    } finally {
-      setDownloading(false);
-    }
-  };
 
   return (
     <div
@@ -82,28 +54,12 @@ export function NowPlaying({ onClose }: Props) {
           <div className="text-sm font-semibold truncate max-w-[200px]">{current.artist}</div>
         </div>
         <div className="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => downloadTrack(current)}
-            disabled={saved || offlineProgress !== undefined}
-            aria-label="Save offline"
-            title="Save offline"
-            className="relative"
-          >
-            {saved ? (
-              <Check className="h-5 w-5 text-primary" />
-            ) : offlineProgress !== undefined ? (
-              <span className="text-[10px] font-bold text-primary">{offlineProgress}%</span>
-            ) : (
-              <WifiOff className="h-5 w-5" />
-            )}
-          </Button>
-          <Button variant="ghost" size="icon" onClick={handleDownload} disabled={downloading || !streamUrl} aria-label="Download to gallery">
-            {downloading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
+          <Button variant="ghost" size="icon" onClick={() => setDownloadOpen(true)} aria-label="Download song">
+            {saved ? <Check className="h-5 w-5 text-primary" /> : offlineProgress !== undefined ? <span className="text-[10px] font-bold text-primary">{offlineProgress}%</span> : <Download className="h-5 w-5" />}
           </Button>
         </div>
       </div>
+      <DownloadChoiceDialog track={current} open={downloadOpen} onOpenChange={setDownloadOpen} />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as "cover" | "lyrics")} className="flex flex-col flex-1 min-h-0 px-3 sm:px-6">
         <TabsList className="mx-auto mb-2 grid w-fit grid-cols-2 bg-secondary/40">
