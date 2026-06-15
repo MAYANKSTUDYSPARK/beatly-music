@@ -76,6 +76,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setStreamUrl(null);
     setCurrentTime(0);
     setDuration(0);
+    errorRetryRef.current = { id: current.id, count: 0 };
+    stallRetryRef.current = { id: current.id, count: 0, at: 0 };
     // Podcast / direct stream override — no need to call edge function.
     if (current.streamOverride) {
       setIsLoading(false);
@@ -245,8 +247,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [duration]);
 
   const handleEnded = useCallback(() => {
+    const actualTime = audioRef.current?.currentTime || currentTime;
+    const actualDuration = audioRef.current?.duration || duration || current?.duration || 0;
     const expectedDuration = duration || current?.duration || 0;
-    if (expectedDuration > 0 && currentTime < expectedDuration - 2) {
+    if (expectedDuration > 0 && actualDuration > 0 && actualTime < Math.min(expectedDuration, actualDuration) - 2) {
       setIsPlaying(false);
       pushNotification({
         title: "Playback paused",

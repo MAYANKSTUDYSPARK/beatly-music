@@ -25,7 +25,7 @@ export function NowPlaying({ onClose }: Props) {
   const {
     current, isPlaying, isLoading, togglePlay, next, prev,
     progress, currentTime, duration, seekTo,
-    shuffle, toggleShuffle, repeat, cycleRepeat, streamUrl,
+    shuffle, toggleShuffle, repeat, cycleRepeat,
     playbackRate, setPlaybackRate, skipBy, stop,
   } = usePlayer();
   const { isLiked, toggleLike } = useLibrary();
