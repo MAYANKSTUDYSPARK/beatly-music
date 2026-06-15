@@ -456,7 +456,7 @@ Deno.serve(async (req) => {
         headers: {
           "User-Agent": "Mozilla/5.0",
           Accept: "audio/*,video/mp4,*/*;q=0.8",
-          Range: req.headers.get("range") ?? "bytes=0-",
+          Range: "bytes=0-",
         },
       });
       if (!upstream.ok && upstream.status !== 206) return err("Stream source failed", 502);
@@ -480,7 +480,7 @@ Deno.serve(async (req) => {
         headers: {
           "User-Agent": "Mozilla/5.0",
           Accept: "audio/*,video/mp4,*/*;q=0.8",
-          Range: req.headers.get("range") ?? "bytes=0-",
+          Range: "bytes=0-",
         },
       });
       if (!upstream.ok && upstream.status !== 206) return err("Download source failed", 502);
