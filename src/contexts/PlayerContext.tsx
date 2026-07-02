@@ -438,15 +438,23 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         src: current.thumbnail, sizes: `${s}x${s}`, type: "image/jpeg",
       })),
     });
-    navigator.mediaSession.setActionHandler("play", () => audioRef.current?.play());
-    navigator.mediaSession.setActionHandler("pause", () => audioRef.current?.pause());
+    navigator.mediaSession.setActionHandler("play", () => {
+      if (youtubePlayerRef.current) youtubePlayerRef.current.playVideo();
+      else audioRef.current?.play();
+    });
+    navigator.mediaSession.setActionHandler("pause", () => {
+      if (youtubePlayerRef.current) youtubePlayerRef.current.pauseVideo();
+      else audioRef.current?.pause();
+    });
     navigator.mediaSession.setActionHandler("stop", stop);
     navigator.mediaSession.setActionHandler("nexttrack", next);
     navigator.mediaSession.setActionHandler("previoustrack", prev);
     navigator.mediaSession.setActionHandler("seekbackward", (d) => skipBy(-(d.seekOffset || 10)));
     navigator.mediaSession.setActionHandler("seekforward", (d) => skipBy(d.seekOffset || 10));
     navigator.mediaSession.setActionHandler("seekto", (d) => {
-      if (audioRef.current && d.seekTime != null) audioRef.current.currentTime = d.seekTime;
+      if (d.seekTime == null) return;
+      if (youtubePlayerRef.current) youtubePlayerRef.current.seekTo(d.seekTime, true);
+      else if (audioRef.current) audioRef.current.currentTime = d.seekTime;
     });
   }, [current, next, prev, stop, skipBy]);
 
@@ -456,7 +464,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     try {
       navigator.mediaSession.setPositionState({
         duration,
-        playbackRate: audioRef.current?.playbackRate || 1,
+        playbackRate,
         position: Math.min(currentTime, duration),
       });
       navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
