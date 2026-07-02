@@ -7,7 +7,8 @@ import { useNotifications } from "./NotificationsContext";
 type RepeatMode = "off" | "all" | "one";
 
 type YouTubeWindow = typeof window & {
-  YT?: typeof YT;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  YT?: any;
   onYouTubeIframeAPIReady?: () => void;
 };
 
@@ -101,7 +102,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [repeat, setRepeat] = useState<RepeatMode>("off");
   const audioRef = useRef<HTMLAudioElement>(null);
   const youtubeIframeRef = useRef<HTMLIFrameElement>(null);
-  const youtubePlayerRef = useRef<YT.Player | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const youtubePlayerRef = useRef<any | null>(null);
   const loadingIdRef = useRef<string | null>(null);
   const consecutiveFailuresRef = useRef(0);
   const lastNotifiedIdRef = useRef<string | null>(null);
