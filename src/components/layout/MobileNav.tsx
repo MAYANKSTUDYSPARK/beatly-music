@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Home, Search, Flame, Download, Send } from "lucide-react";
+import { Home, Search, Flame, Download, Send, Mic } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePlayer } from "@/contexts/PlayerContext";
 
@@ -10,6 +10,7 @@ type MobileNavItem =
 const items: MobileNavItem[] = [
   { to: "/", label: "Home", icon: Home, end: true },
   { to: "/search", label: "Search", icon: Search },
+  { to: "/podcasts", label: "Podcasts", icon: Mic },
   { href: "https://telegram.me/scholarversepro_network", label: "TG", icon: Send },
   { to: "/trending", label: "Trending", icon: Flame },
   { to: "/downloads", label: "Saved", icon: Download },
@@ -20,7 +21,7 @@ export function MobileNav() {
   return (
     <nav
       className={cn(
-        "fixed inset-x-0 z-30 grid grid-cols-5 border-t border-border bg-background/95 backdrop-blur-xl md:hidden",
+        "fixed inset-x-0 z-30 grid grid-cols-6 border-t border-border bg-background/95 backdrop-blur-xl md:hidden",
         current ? "bottom-[88px]" : "bottom-0"
       )}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
