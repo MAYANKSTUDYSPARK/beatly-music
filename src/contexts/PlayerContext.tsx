@@ -114,8 +114,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const lastNotifiedIdRef = useRef<string | null>(null);
   const errorRetryRef = useRef<{ id: string; count: number }>({ id: "", count: 0 });
   const stallRetryRef = useRef<{ id: string; count: number; at: number }>({ id: "", count: 0, at: 0 });
+  const handleEndedRef = useRef<() => void>(() => undefined);
+  const isPlayingRef = useRef(false);
 
   const current = index >= 0 && index < queue.length ? queue[index] : null;
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
   // Load stream URL when current track changes
   useEffect(() => {
@@ -339,6 +345,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [repeat, next, duration, current, currentTime, pushNotification, youtubeState]);
 
+  useEffect(() => {
+    handleEndedRef.current = handleEnded;
+  }, [handleEnded]);
+
   // Official YouTube iframe fallback for songs. This keeps playback working even
   // when public audio stream proxies return LOGIN_REQUIRED/403/502.
   useEffect(() => {
@@ -362,10 +372,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             event.target.setPlaybackRate?.(playbackRate);
             const d = event.target.getDuration?.() || 0;
             if (d) setDuration(d);
-            if (isPlaying) event.target.playVideo();
+            if (isPlayingRef.current) event.target.playVideo();
           },
           onStateChange: (event) => {
-            if (event.data === 0) handleEnded();
+            if (event.data === 0) handleEndedRef.current();
             if (event.data === 1) {
               setIsPlaying(true);
               setIsLoading(false);
@@ -396,7 +406,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [youtubeState, volume, playbackRate, isPlaying, handleEnded, pushNotification, current]);
+  }, [youtubeState?.videoId, youtubeState?.src]);
 
   useEffect(() => {
     if (!youtubeState) return;
