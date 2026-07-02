@@ -1,7 +1,7 @@
 /// <reference types="youtube" />
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Track } from "@/lib/music-api";
-import { getStreamUrl, getRelated } from "@/lib/music-api";
+import { getStreamUrl, getRelated, getDownloadUrl } from "@/lib/music-api";
 import { useNotifications } from "./NotificationsContext";
 
 type RepeatMode = "off" | "all" | "one";
@@ -116,6 +116,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const stallRetryRef = useRef<{ id: string; count: number; at: number }>({ id: "", count: 0, at: 0 });
   const handleEndedRef = useRef<() => void>(() => undefined);
   const isPlayingRef = useRef(false);
+  const audioFallbackRef = useRef<string | null>(null);
 
   const current = index >= 0 && index < queue.length ? queue[index] : null;
 
@@ -134,6 +135,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setDuration(0);
     errorRetryRef.current = { id: current.id, count: 0 };
     stallRetryRef.current = { id: current.id, count: 0, at: 0 };
+    audioFallbackRef.current = null;
     setYoutubeState(null);
     youtubePlayerRef.current?.stopVideo?.();
     // Podcast / direct stream override — no need to call edge function.
@@ -349,6 +351,22 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     handleEndedRef.current = handleEnded;
   }, [handleEnded]);
 
+  const switchToAudioFallback = useCallback(() => {
+    if (!current || current.streamOverride) return;
+    const fallbackUrl = getDownloadUrl(
+      current.id,
+      `${current.artist} - ${current.title}`,
+      `${current.artist} ${current.title}`
+    );
+    if (audioFallbackRef.current === fallbackUrl) return;
+    audioFallbackRef.current = fallbackUrl;
+    youtubePlayerRef.current?.stopVideo?.();
+    setYoutubeState(null);
+    setStreamUrl(fallbackUrl);
+    setIsLoading(false);
+    setIsPlaying(true);
+  }, [current]);
+
   // Official YouTube iframe fallback for songs. This keeps playback working even
   // when public audio stream proxies return LOGIN_REQUIRED/403/502.
   useEffect(() => {
@@ -389,24 +407,26 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             if (event.data === 3) setIsLoading(true);
           },
           onError: () => {
-            setIsLoading(false);
-            setIsPlaying(false);
-            pushNotification({
-              title: "Playback issue",
-              body: "This track is restricted. Try another result.",
-              image: current?.thumbnail,
-            });
+            switchToAudioFallback();
           },
         },
       });
     }).catch(() => {
-      setIsLoading(false);
-      setIsPlaying(false);
+      switchToAudioFallback();
     });
+    const watchdog = window.setTimeout(() => {
+      const player = youtubePlayerRef.current;
+      const state = player?.getPlayerState?.();
+      const position = player?.getCurrentTime?.() || 0;
+      if (!cancelled && isPlayingRef.current && state !== 1 && position < 0.5) {
+        switchToAudioFallback();
+      }
+    }, 6500);
     return () => {
       cancelled = true;
+      window.clearTimeout(watchdog);
     };
-  }, [youtubeState?.videoId, youtubeState?.src]);
+  }, [youtubeState?.videoId, youtubeState?.src, switchToAudioFallback]);
 
   useEffect(() => {
     if (!youtubeState) return;
