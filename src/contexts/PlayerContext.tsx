@@ -6,6 +6,46 @@ import { useNotifications } from "./NotificationsContext";
 
 type RepeatMode = "off" | "all" | "one";
 
+type YouTubeWindow = typeof window & {
+  YT?: typeof YT;
+  onYouTubeIframeAPIReady?: () => void;
+};
+
+let youtubeApiPromise: Promise<void> | null = null;
+
+function loadYouTubeIframeApi(): Promise<void> {
+  const w = window as YouTubeWindow;
+  if (w.YT?.Player) return Promise.resolve();
+  if (!youtubeApiPromise) {
+    youtubeApiPromise = new Promise((resolve) => {
+      const previous = w.onYouTubeIframeAPIReady;
+      w.onYouTubeIframeAPIReady = () => {
+        previous?.();
+        resolve();
+      };
+      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+        const tag = document.createElement("script");
+        tag.src = "https://www.youtube.com/iframe_api";
+        tag.async = true;
+        document.head.appendChild(tag);
+      }
+    });
+  }
+  return youtubeApiPromise;
+}
+
+function youtubeEmbedUrl(videoId: string): string {
+  const url = new URL(`https://www.youtube.com/embed/${encodeURIComponent(videoId)}`);
+  url.searchParams.set("autoplay", "1");
+  url.searchParams.set("playsinline", "1");
+  url.searchParams.set("enablejsapi", "1");
+  url.searchParams.set("controls", "0");
+  url.searchParams.set("rel", "0");
+  url.searchParams.set("modestbranding", "1");
+  url.searchParams.set("origin", window.location.origin);
+  return url.toString();
+}
+
 interface PlayerContextValue {
   current: Track | null;
   queue: Track[];
@@ -48,6 +88,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [ytFallbackId, setYtFallbackId] = useState<string | null>(null);
   const [playbackRate, setPlaybackRateState] = useState<number>(() => {
     const rate = Number(localStorage.getItem("beatly:playback-rate") || "1");
     return Number.isFinite(rate) && rate >= 0.75 && rate <= 1.5 ? rate : 1;
@@ -59,6 +100,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<RepeatMode>("off");
   const audioRef = useRef<HTMLAudioElement>(null);
+  const youtubeIframeRef = useRef<HTMLIFrameElement>(null);
+  const youtubePlayerRef = useRef<YT.Player | null>(null);
   const loadingIdRef = useRef<string | null>(null);
   const consecutiveFailuresRef = useRef(0);
   const lastNotifiedIdRef = useRef<string | null>(null);
@@ -78,6 +121,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setDuration(0);
     errorRetryRef.current = { id: current.id, count: 0 };
     stallRetryRef.current = { id: current.id, count: 0, at: 0 };
+    setYtFallbackId(null);
+    youtubePlayerRef.current?.stopVideo?.();
     // Podcast / direct stream override — no need to call edge function.
     if (current.streamOverride) {
       setIsLoading(false);
@@ -85,26 +130,18 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       consecutiveFailuresRef.current = 0;
       return;
     }
+    // Songs use the official YouTube iframe as the instant playback path. The audio
+    // extraction API is still warmed in the background for downloads, but playback
+    // must never fail just because public stream proxies are blocked.
+    setIsLoading(false);
+    setYtFallbackId(current.id);
+    consecutiveFailuresRef.current = 0;
     getStreamUrl(current.id).then((url) => {
       if (cancelled || loadingIdRef.current !== current.id) return;
-      setIsLoading(false);
-      if (!url) {
-        consecutiveFailuresRef.current += 1;
-        setIsPlaying(false);
-        pushNotification({
-          title: "Stream unavailable",
-          body: "Try another song or play a downloaded track.",
-          image: current.thumbnail,
-        });
-      } else {
-        consecutiveFailuresRef.current = 0;
-        setStreamUrl(url);
-      }
-    }).catch(() => {
-      if (!cancelled) setIsLoading(false);
-    });
+      if (url) consecutiveFailuresRef.current = 0;
+    }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [current, pushNotification]);
+  }, [current]);
 
   // Notify on track change
   useEffect(() => {
@@ -159,11 +196,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const togglePlay = useCallback(() => {
+    if (ytFallbackId && youtubePlayerRef.current) {
+      const state = youtubePlayerRef.current.getPlayerState?.();
+      if (state === 1) youtubePlayerRef.current.pauseVideo();
+      else youtubePlayerRef.current.playVideo();
+      return;
+    }
     const a = audioRef.current;
     if (!a) return;
     if (a.paused) a.play().catch(() => undefined);
     else a.pause();
-  }, []);
+  }, [ytFallbackId]);
 
   const next = useCallback(() => {
     if (!queue.length) return;
@@ -188,15 +231,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [queue.length, currentTime, repeat]);
 
   const seekTo = useCallback((fraction: number) => {
+    if (ytFallbackId && youtubePlayerRef.current && duration) {
+      youtubePlayerRef.current.seekTo(fraction * duration, true);
+      return;
+    }
     const a = audioRef.current;
     if (!a || !duration) return;
     a.currentTime = fraction * duration;
-  }, [duration]);
+  }, [duration, ytFallbackId]);
 
   const setVolume = useCallback((v: number) => {
     setVolumeState(v);
     localStorage.setItem("beatly:volume", String(v));
     if (audioRef.current) audioRef.current.volume = v / 100;
+    youtubePlayerRef.current?.setVolume(v);
   }, []);
 
   const setPlaybackRate = useCallback((rate: number) => {
@@ -204,6 +252,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setPlaybackRateState(safeRate);
     localStorage.setItem("beatly:playback-rate", String(safeRate));
     if (audioRef.current) audioRef.current.playbackRate = safeRate;
+    youtubePlayerRef.current?.setPlaybackRate?.(safeRate);
   }, []);
 
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
@@ -234,19 +283,35 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       a.pause();
       a.currentTime = 0;
     }
+    youtubePlayerRef.current?.stopVideo?.();
     setCurrentTime(0);
     setIsPlaying(false);
   }, []);
 
   const skipBy = useCallback((seconds: number) => {
+    if (ytFallbackId && youtubePlayerRef.current) {
+      const nextTime = Math.min(Math.max((youtubePlayerRef.current.getCurrentTime?.() || 0) + seconds, 0), duration || Number.MAX_SAFE_INTEGER);
+      youtubePlayerRef.current.seekTo(nextTime, true);
+      setCurrentTime(nextTime);
+      return;
+    }
     const a = audioRef.current;
     if (!a) return;
     const nextTime = Math.min(Math.max(a.currentTime + seconds, 0), duration || Number.MAX_SAFE_INTEGER);
     a.currentTime = nextTime;
     setCurrentTime(nextTime);
-  }, [duration]);
+  }, [duration, ytFallbackId]);
 
   const handleEnded = useCallback(() => {
+    if (ytFallbackId) {
+      if (repeat === "one" && youtubePlayerRef.current) {
+        youtubePlayerRef.current.seekTo(0, true);
+        youtubePlayerRef.current.playVideo();
+      } else {
+        next();
+      }
+      return;
+    }
     const actualTime = audioRef.current?.currentTime || currentTime;
     const actualDuration = audioRef.current?.duration || duration || current?.duration || 0;
     const expectedDuration = duration || current?.duration || 0;
@@ -265,7 +330,85 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     } else {
       next();
     }
-  }, [repeat, next, duration, current, currentTime, pushNotification]);
+  }, [repeat, next, duration, current, currentTime, pushNotification, ytFallbackId]);
+
+  // Official YouTube iframe fallback for songs. This keeps playback working even
+  // when public audio stream proxies return LOGIN_REQUIRED/403/502.
+  useEffect(() => {
+    if (!ytFallbackId) {
+      youtubePlayerRef.current?.destroy?.();
+      youtubePlayerRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    setIsLoading(true);
+    loadYouTubeIframeApi().then(() => {
+      if (cancelled || !youtubeIframeRef.current) return;
+      youtubePlayerRef.current?.destroy?.();
+      const w = window as YouTubeWindow;
+      youtubePlayerRef.current = new w.YT!.Player(youtubeIframeRef.current, {
+        events: {
+          onReady: (event) => {
+            if (cancelled) return;
+            setIsLoading(false);
+            event.target.setVolume(volume);
+            event.target.setPlaybackRate?.(playbackRate);
+            const d = event.target.getDuration?.() || 0;
+            if (d) setDuration(d);
+            if (isPlaying) event.target.playVideo();
+          },
+          onStateChange: (event) => {
+            if (event.data === 0) handleEnded();
+            if (event.data === 1) {
+              setIsPlaying(true);
+              setIsLoading(false);
+              const d = event.target.getDuration?.() || 0;
+              if (d) setDuration(d);
+            }
+            if (event.data === 2) {
+              setIsPlaying(false);
+              setIsLoading(false);
+            }
+            if (event.data === 3) setIsLoading(true);
+          },
+          onError: () => {
+            setIsLoading(false);
+            setIsPlaying(false);
+            pushNotification({
+              title: "Playback issue",
+              body: "This track is restricted. Try another result.",
+              image: current?.thumbnail,
+            });
+          },
+        },
+      });
+    }).catch(() => {
+      setIsLoading(false);
+      setIsPlaying(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ytFallbackId, volume, playbackRate, isPlaying, handleEnded, pushNotification, current]);
+
+  useEffect(() => {
+    if (!ytFallbackId) return;
+    const timer = window.setInterval(() => {
+      const player = youtubePlayerRef.current;
+      if (!player) return;
+      const t = player.getCurrentTime?.() || 0;
+      const d = player.getDuration?.() || 0;
+      setCurrentTime(t);
+      if (d) setDuration(d);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [ytFallbackId]);
+
+  useEffect(() => {
+    if (!ytFallbackId || !youtubePlayerRef.current) return;
+    if (isPlaying) youtubePlayerRef.current.playVideo();
+    else youtubePlayerRef.current.pauseVideo();
+  }, [ytFallbackId, isPlaying]);
 
   // Media Session metadata (lock-screen controls + system notification)
   useEffect(() => {
@@ -376,9 +519,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         onWaiting={handleWaiting}
         onStalled={handleWaiting}
         onError={handleAudioError}
-        crossOrigin="anonymous"
         preload="auto"
       />
+      {ytFallbackId && (
+        <div className="fixed left-[-9999px] top-0 h-px w-px overflow-hidden" aria-hidden="true">
+          <iframe
+            key={ytFallbackId}
+            ref={youtubeIframeRef}
+            title="Beatly backup player"
+            src={youtubeEmbedUrl(ytFallbackId)}
+            allow="autoplay; encrypted-media"
+            className="h-px w-px"
+          />
+        </div>
+      )}
     </PlayerContext.Provider>
   );
 }
