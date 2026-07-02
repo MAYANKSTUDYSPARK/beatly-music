@@ -117,6 +117,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const handleEndedRef = useRef<() => void>(() => undefined);
   const isPlayingRef = useRef(false);
   const audioFallbackRef = useRef<string | null>(null);
+  const fallbackObjectUrlRef = useRef<string | null>(null);
 
   const current = index >= 0 && index < queue.length ? queue[index] : null;
 
@@ -136,6 +137,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     errorRetryRef.current = { id: current.id, count: 0 };
     stallRetryRef.current = { id: current.id, count: 0, at: 0 };
     audioFallbackRef.current = null;
+    if (fallbackObjectUrlRef.current) {
+      URL.revokeObjectURL(fallbackObjectUrlRef.current);
+      fallbackObjectUrlRef.current = null;
+    }
     setYoutubeState(null);
     youtubePlayerRef.current?.stopVideo?.();
     // Podcast / direct stream override — no need to call edge function.
@@ -351,7 +356,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     handleEndedRef.current = handleEnded;
   }, [handleEnded]);
 
-  const switchToAudioFallback = useCallback(() => {
+  const switchToAudioFallback = useCallback(async () => {
     if (!current || current.streamOverride) return;
     const fallbackUrl = getInlineStreamUrl(
       current.id,
@@ -361,10 +366,29 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     audioFallbackRef.current = fallbackUrl;
     youtubePlayerRef.current?.stopVideo?.();
     setYoutubeState(null);
-    setStreamUrl(fallbackUrl);
-    setIsLoading(false);
-    setIsPlaying(true);
-  }, [current]);
+    setIsLoading(true);
+    try {
+      const res = await fetch(fallbackUrl);
+      if (!res.ok) throw new Error("fallback stream failed");
+      const blob = await res.blob();
+      if (blob.size < 1024) throw new Error("empty fallback stream");
+      if (fallbackObjectUrlRef.current) URL.revokeObjectURL(fallbackObjectUrlRef.current);
+      const objectUrl = URL.createObjectURL(blob);
+      fallbackObjectUrlRef.current = objectUrl;
+      setStreamUrl(objectUrl);
+      setDuration(current.duration || 0);
+      setIsPlaying(true);
+    } catch {
+      setIsPlaying(false);
+      pushNotification({
+        title: "Playback issue",
+        body: "This track is restricted. Try another result.",
+        image: current.thumbnail,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [current, pushNotification]);
 
   // Official YouTube iframe fallback for songs. This keeps playback working even
   // when public audio stream proxies return LOGIN_REQUIRED/403/502.
