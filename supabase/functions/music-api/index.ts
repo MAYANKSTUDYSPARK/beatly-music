@@ -481,8 +481,9 @@ Deno.serve(async (req) => {
     }
     if (sub === "stream-file") {
       const id = url.searchParams.get("id") ?? "";
+      const query = url.searchParams.get("q") ?? "";
       if (!id) return err("id required", 400);
-      const stream = await getStream(id);
+      const stream = await getStream(id) ?? await getSaavnDownload(query);
       if (!stream) return err("Stream unavailable for this track", 404);
       const upstream = await fetch(stream.url, {
         headers: {

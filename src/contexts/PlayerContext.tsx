@@ -1,7 +1,7 @@
 /// <reference types="youtube" />
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Track } from "@/lib/music-api";
-import { getStreamUrl, getRelated, getDownloadUrl } from "@/lib/music-api";
+import { getStreamUrl, getRelated, getInlineStreamUrl } from "@/lib/music-api";
 import { useNotifications } from "./NotificationsContext";
 
 type RepeatMode = "off" | "all" | "one";
@@ -353,9 +353,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const switchToAudioFallback = useCallback(() => {
     if (!current || current.streamOverride) return;
-    const fallbackUrl = getDownloadUrl(
+    const fallbackUrl = getInlineStreamUrl(
       current.id,
-      `${current.artist} - ${current.title}`,
       `${current.artist} ${current.title}`
     );
     if (audioFallbackRef.current === fallbackUrl) return;
