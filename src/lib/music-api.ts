@@ -93,6 +93,13 @@ export function getDownloadUrl(videoId: string, fileName?: string, query?: strin
   return url.toString();
 }
 
+export function getInlineStreamUrl(videoId: string, query?: string): string {
+  const url = new URL(`${BASE}/stream-file`);
+  url.searchParams.set("id", videoId);
+  if (query) url.searchParams.set("q", query);
+  return url.toString();
+}
+
 export function formatDuration(seconds: number): string {
   if (!seconds || seconds < 0) return "0:00";
   const m = Math.floor(seconds / 60);
