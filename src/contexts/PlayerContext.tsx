@@ -1,10 +1,56 @@
 /// <reference types="youtube" />
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Track } from "@/lib/music-api";
-import { getStreamUrl, getRelated } from "@/lib/music-api";
+import { getStreamUrl, getRelated, getInlineStreamUrl } from "@/lib/music-api";
 import { useNotifications } from "./NotificationsContext";
 
 type RepeatMode = "off" | "all" | "one";
+
+type YouTubeWindow = typeof window & {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  YT?: any;
+  onYouTubeIframeAPIReady?: () => void;
+};
+
+type YouTubeState = {
+  videoId: string;
+  src: string;
+};
+
+let youtubeApiPromise: Promise<void> | null = null;
+
+function loadYouTubeIframeApi(): Promise<void> {
+  const w = window as YouTubeWindow;
+  if (w.YT?.Player) return Promise.resolve();
+  if (!youtubeApiPromise) {
+    youtubeApiPromise = new Promise((resolve) => {
+      const previous = w.onYouTubeIframeAPIReady;
+      w.onYouTubeIframeAPIReady = () => {
+        previous?.();
+        resolve();
+      };
+      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+        const tag = document.createElement("script");
+        tag.src = "https://www.youtube.com/iframe_api";
+        tag.async = true;
+        document.head.appendChild(tag);
+      }
+    });
+  }
+  return youtubeApiPromise;
+}
+
+function youtubeEmbedUrl(videoId: string): string {
+  const url = new URL(`https://www.youtube.com/embed/${encodeURIComponent(videoId)}`);
+  url.searchParams.set("autoplay", "1");
+  url.searchParams.set("playsinline", "1");
+  url.searchParams.set("enablejsapi", "1");
+  url.searchParams.set("controls", "0");
+  url.searchParams.set("rel", "0");
+  url.searchParams.set("modestbranding", "1");
+  url.searchParams.set("origin", window.location.origin);
+  return url.toString();
+}
 
 interface PlayerContextValue {
   current: Track | null;
@@ -48,6 +94,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [youtubeState, setYoutubeState] = useState<YouTubeState | null>(null);
   const [playbackRate, setPlaybackRateState] = useState<number>(() => {
     const rate = Number(localStorage.getItem("beatly:playback-rate") || "1");
     return Number.isFinite(rate) && rate >= 0.75 && rate <= 1.5 ? rate : 1;
@@ -59,13 +106,24 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<RepeatMode>("off");
   const audioRef = useRef<HTMLAudioElement>(null);
+  const youtubeIframeRef = useRef<HTMLIFrameElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const youtubePlayerRef = useRef<any | null>(null);
   const loadingIdRef = useRef<string | null>(null);
   const consecutiveFailuresRef = useRef(0);
   const lastNotifiedIdRef = useRef<string | null>(null);
   const errorRetryRef = useRef<{ id: string; count: number }>({ id: "", count: 0 });
   const stallRetryRef = useRef<{ id: string; count: number; at: number }>({ id: "", count: 0, at: 0 });
+  const handleEndedRef = useRef<() => void>(() => undefined);
+  const isPlayingRef = useRef(false);
+  const audioFallbackRef = useRef<string | null>(null);
+  const fallbackObjectUrlRef = useRef<string | null>(null);
 
   const current = index >= 0 && index < queue.length ? queue[index] : null;
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
   // Load stream URL when current track changes
   useEffect(() => {
@@ -78,6 +136,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setDuration(0);
     errorRetryRef.current = { id: current.id, count: 0 };
     stallRetryRef.current = { id: current.id, count: 0, at: 0 };
+    audioFallbackRef.current = null;
+    if (fallbackObjectUrlRef.current) {
+      URL.revokeObjectURL(fallbackObjectUrlRef.current);
+      fallbackObjectUrlRef.current = null;
+    }
+    setYoutubeState(null);
+    youtubePlayerRef.current?.stopVideo?.();
     // Podcast / direct stream override — no need to call edge function.
     if (current.streamOverride) {
       setIsLoading(false);
@@ -85,26 +150,18 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       consecutiveFailuresRef.current = 0;
       return;
     }
+    // Songs use the official YouTube iframe as the instant playback path. The audio
+    // extraction API is still warmed in the background for downloads, but playback
+    // must never fail just because public stream proxies are blocked.
+    setIsLoading(false);
+    setYoutubeState({ videoId: current.id, src: youtubeEmbedUrl(current.id) });
+    consecutiveFailuresRef.current = 0;
     getStreamUrl(current.id).then((url) => {
       if (cancelled || loadingIdRef.current !== current.id) return;
-      setIsLoading(false);
-      if (!url) {
-        consecutiveFailuresRef.current += 1;
-        setIsPlaying(false);
-        pushNotification({
-          title: "Stream unavailable",
-          body: "Try another song or play a downloaded track.",
-          image: current.thumbnail,
-        });
-      } else {
-        consecutiveFailuresRef.current = 0;
-        setStreamUrl(url);
-      }
-    }).catch(() => {
-      if (!cancelled) setIsLoading(false);
-    });
+      if (url) consecutiveFailuresRef.current = 0;
+    }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [current, pushNotification]);
+  }, [current]);
 
   // Notify on track change
   useEffect(() => {
@@ -159,11 +216,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const togglePlay = useCallback(() => {
+    if (youtubeState && youtubePlayerRef.current) {
+      const state = youtubePlayerRef.current.getPlayerState?.();
+      if (state === 1) youtubePlayerRef.current.pauseVideo();
+      else youtubePlayerRef.current.playVideo();
+      return;
+    }
     const a = audioRef.current;
     if (!a) return;
     if (a.paused) a.play().catch(() => undefined);
     else a.pause();
-  }, []);
+  }, [youtubeState]);
 
   const next = useCallback(() => {
     if (!queue.length) return;
@@ -188,15 +251,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [queue.length, currentTime, repeat]);
 
   const seekTo = useCallback((fraction: number) => {
+    if (youtubeState && youtubePlayerRef.current && duration) {
+      youtubePlayerRef.current.seekTo(fraction * duration, true);
+      return;
+    }
     const a = audioRef.current;
     if (!a || !duration) return;
     a.currentTime = fraction * duration;
-  }, [duration]);
+  }, [duration, youtubeState]);
 
   const setVolume = useCallback((v: number) => {
     setVolumeState(v);
     localStorage.setItem("beatly:volume", String(v));
     if (audioRef.current) audioRef.current.volume = v / 100;
+    youtubePlayerRef.current?.setVolume(v);
   }, []);
 
   const setPlaybackRate = useCallback((rate: number) => {
@@ -204,6 +272,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setPlaybackRateState(safeRate);
     localStorage.setItem("beatly:playback-rate", String(safeRate));
     if (audioRef.current) audioRef.current.playbackRate = safeRate;
+    youtubePlayerRef.current?.setPlaybackRate?.(safeRate);
   }, []);
 
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
@@ -234,19 +303,35 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       a.pause();
       a.currentTime = 0;
     }
+    youtubePlayerRef.current?.stopVideo?.();
     setCurrentTime(0);
     setIsPlaying(false);
   }, []);
 
   const skipBy = useCallback((seconds: number) => {
+    if (youtubeState && youtubePlayerRef.current) {
+      const nextTime = Math.min(Math.max((youtubePlayerRef.current.getCurrentTime?.() || 0) + seconds, 0), duration || Number.MAX_SAFE_INTEGER);
+      youtubePlayerRef.current.seekTo(nextTime, true);
+      setCurrentTime(nextTime);
+      return;
+    }
     const a = audioRef.current;
     if (!a) return;
     const nextTime = Math.min(Math.max(a.currentTime + seconds, 0), duration || Number.MAX_SAFE_INTEGER);
     a.currentTime = nextTime;
     setCurrentTime(nextTime);
-  }, [duration]);
+  }, [duration, youtubeState]);
 
   const handleEnded = useCallback(() => {
+    if (youtubeState) {
+      if (repeat === "one" && youtubePlayerRef.current) {
+        youtubePlayerRef.current.seekTo(0, true);
+        youtubePlayerRef.current.playVideo();
+      } else {
+        next();
+      }
+      return;
+    }
     const actualTime = audioRef.current?.currentTime || currentTime;
     const actualDuration = audioRef.current?.duration || duration || current?.duration || 0;
     const expectedDuration = duration || current?.duration || 0;
@@ -265,7 +350,125 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     } else {
       next();
     }
-  }, [repeat, next, duration, current, currentTime, pushNotification]);
+  }, [repeat, next, duration, current, currentTime, pushNotification, youtubeState]);
+
+  useEffect(() => {
+    handleEndedRef.current = handleEnded;
+  }, [handleEnded]);
+
+  const switchToAudioFallback = useCallback(async () => {
+    if (!current || current.streamOverride) return;
+    const fallbackUrl = getInlineStreamUrl(
+      current.id,
+      `${current.artist} ${current.title}`
+    );
+    if (audioFallbackRef.current === fallbackUrl) return;
+    audioFallbackRef.current = fallbackUrl;
+    youtubePlayerRef.current?.stopVideo?.();
+    setYoutubeState(null);
+    setIsLoading(true);
+    try {
+      const res = await fetch(fallbackUrl);
+      if (!res.ok) throw new Error("fallback stream failed");
+      const blob = await res.blob();
+      if (blob.size < 1024) throw new Error("empty fallback stream");
+      if (fallbackObjectUrlRef.current) URL.revokeObjectURL(fallbackObjectUrlRef.current);
+      const objectUrl = URL.createObjectURL(blob);
+      fallbackObjectUrlRef.current = objectUrl;
+      setStreamUrl(objectUrl);
+      setDuration(current.duration || 0);
+      setIsPlaying(true);
+    } catch {
+      setIsPlaying(false);
+      pushNotification({
+        title: "Playback issue",
+        body: "This track is restricted. Try another result.",
+        image: current.thumbnail,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [current, pushNotification]);
+
+  // Official YouTube iframe fallback for songs. This keeps playback working even
+  // when public audio stream proxies return LOGIN_REQUIRED/403/502.
+  useEffect(() => {
+    if (!youtubeState) {
+      youtubePlayerRef.current?.destroy?.();
+      youtubePlayerRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    setIsLoading(true);
+    loadYouTubeIframeApi().then(() => {
+      if (cancelled || !youtubeIframeRef.current) return;
+      youtubePlayerRef.current?.destroy?.();
+      const w = window as YouTubeWindow;
+      youtubePlayerRef.current = new w.YT!.Player(youtubeIframeRef.current, {
+        events: {
+          onReady: (event) => {
+            if (cancelled) return;
+            setIsLoading(false);
+            event.target.setVolume(volume);
+            event.target.setPlaybackRate?.(playbackRate);
+            const d = event.target.getDuration?.() || 0;
+            if (d) setDuration(d);
+            if (isPlayingRef.current) event.target.playVideo();
+          },
+          onStateChange: (event) => {
+            if (event.data === 0) handleEndedRef.current();
+            if (event.data === 1) {
+              setIsPlaying(true);
+              setIsLoading(false);
+              const d = event.target.getDuration?.() || 0;
+              if (d) setDuration(d);
+            }
+            if (event.data === 2) {
+              setIsPlaying(false);
+              setIsLoading(false);
+            }
+            if (event.data === 3) setIsLoading(true);
+          },
+          onError: () => {
+            switchToAudioFallback();
+          },
+        },
+      });
+    }).catch(() => {
+      switchToAudioFallback();
+    });
+    const watchdog = window.setTimeout(() => {
+      const player = youtubePlayerRef.current;
+      const state = player?.getPlayerState?.();
+      const position = player?.getCurrentTime?.() || 0;
+      if (!cancelled && isPlayingRef.current && state !== 1 && position < 0.5) {
+        switchToAudioFallback();
+      }
+    }, 6500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(watchdog);
+    };
+  }, [youtubeState?.videoId, youtubeState?.src, switchToAudioFallback]);
+
+  useEffect(() => {
+    if (!youtubeState) return;
+    const timer = window.setInterval(() => {
+      const player = youtubePlayerRef.current;
+      if (!player) return;
+      const t = player.getCurrentTime?.() || 0;
+      const d = player.getDuration?.() || 0;
+      setCurrentTime(t);
+      if (d) setDuration(d);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [youtubeState]);
+
+  useEffect(() => {
+    if (!youtubeState || !youtubePlayerRef.current) return;
+    if (isPlaying) youtubePlayerRef.current.playVideo();
+    else youtubePlayerRef.current.pauseVideo();
+  }, [youtubeState, isPlaying]);
 
   // Media Session metadata (lock-screen controls + system notification)
   useEffect(() => {
@@ -278,15 +481,23 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         src: current.thumbnail, sizes: `${s}x${s}`, type: "image/jpeg",
       })),
     });
-    navigator.mediaSession.setActionHandler("play", () => audioRef.current?.play());
-    navigator.mediaSession.setActionHandler("pause", () => audioRef.current?.pause());
+    navigator.mediaSession.setActionHandler("play", () => {
+      if (youtubePlayerRef.current) youtubePlayerRef.current.playVideo();
+      else audioRef.current?.play();
+    });
+    navigator.mediaSession.setActionHandler("pause", () => {
+      if (youtubePlayerRef.current) youtubePlayerRef.current.pauseVideo();
+      else audioRef.current?.pause();
+    });
     navigator.mediaSession.setActionHandler("stop", stop);
     navigator.mediaSession.setActionHandler("nexttrack", next);
     navigator.mediaSession.setActionHandler("previoustrack", prev);
     navigator.mediaSession.setActionHandler("seekbackward", (d) => skipBy(-(d.seekOffset || 10)));
     navigator.mediaSession.setActionHandler("seekforward", (d) => skipBy(d.seekOffset || 10));
     navigator.mediaSession.setActionHandler("seekto", (d) => {
-      if (audioRef.current && d.seekTime != null) audioRef.current.currentTime = d.seekTime;
+      if (d.seekTime == null) return;
+      if (youtubePlayerRef.current) youtubePlayerRef.current.seekTo(d.seekTime, true);
+      else if (audioRef.current) audioRef.current.currentTime = d.seekTime;
     });
   }, [current, next, prev, stop, skipBy]);
 
@@ -296,7 +507,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     try {
       navigator.mediaSession.setPositionState({
         duration,
-        playbackRate: audioRef.current?.playbackRate || 1,
+        playbackRate,
         position: Math.min(currentTime, duration),
       });
       navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
@@ -376,9 +587,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         onWaiting={handleWaiting}
         onStalled={handleWaiting}
         onError={handleAudioError}
-        crossOrigin="anonymous"
         preload="auto"
       />
+      {youtubeState && (
+        <div className="fixed left-[-9999px] top-0 h-px w-px overflow-hidden" aria-hidden="true">
+          <iframe
+            key={youtubeState.videoId}
+            ref={youtubeIframeRef}
+            title="Beatly backup player"
+            src={youtubeState.src}
+            allow="autoplay; encrypted-media"
+            className="h-px w-px"
+          />
+        </div>
+      )}
     </PlayerContext.Provider>
   );
 }

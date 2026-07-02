@@ -399,6 +399,38 @@ async function getStream(videoId: string): Promise<StreamResult | null> {
   return null;
 }
 
+const SAAVN_INSTANCES = [
+  "https://saavn-api-eight.vercel.app",
+  "https://jiosavn-api.vercel.app",
+];
+
+async function getSaavnDownload(query: string): Promise<StreamResult | null> {
+  const q = query.replace(/\.(mp3|m4a|mp4)$/i, "").replace(/\s+/g, " ").trim();
+  if (!q) return null;
+  for (const base of SAAVN_INSTANCES) {
+    try {
+      const res = await fetch(`${base}/api/search/songs?query=${encodeURIComponent(q)}&limit=1`, {
+        headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const downloads: any[] = data?.data?.results?.[0]?.downloadUrl ?? [];
+      const best = downloads
+        .filter((d) => d.url)
+        .sort((a, b) => parseInt(b.quality, 10) - parseInt(a.quality, 10))[0];
+      if (best?.url) {
+        const candidate = { url: best.url, mimeType: "audio/mp4" };
+        if (await isReachableMedia(candidate.url)) return candidate;
+      }
+    } catch (e) {
+      console.log(`[saavn] threw:`, e instanceof Error ? e.message : e);
+    }
+  }
+  return null;
+}
+
 function streamApiUrl(req: Request, videoId: string): string {
   const url = new URL(req.url);
   url.protocol = "https:";
@@ -449,8 +481,9 @@ Deno.serve(async (req) => {
     }
     if (sub === "stream-file") {
       const id = url.searchParams.get("id") ?? "";
+      const query = url.searchParams.get("q") ?? "";
       if (!id) return err("id required", 400);
-      const stream = await getStream(id);
+      const stream = await getStream(id) ?? await getSaavnDownload(query);
       if (!stream) return err("Stream unavailable for this track", 404);
       const upstream = await fetch(stream.url, {
         headers: {
@@ -473,8 +506,9 @@ Deno.serve(async (req) => {
     if (sub === "download") {
       const id = url.searchParams.get("id") ?? "";
       const name = safeFileName(url.searchParams.get("name") ?? `Beatly-${id}`);
+      const query = url.searchParams.get("q") ?? name;
       if (!id) return err("id required", 400);
-      const stream = await getStream(id);
+      const stream = await getStream(id) ?? await getSaavnDownload(query);
       if (!stream) return err("Download unavailable for this track", 404);
       const upstream = await fetch(stream.url, {
         headers: {
