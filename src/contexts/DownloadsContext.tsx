@@ -46,7 +46,7 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
     }
     setInProgress((p) => ({ ...p, [track.id]: 1 }));
     try {
-      const url = track.streamOverride || getDownloadUrl(track.id, `${track.artist} - ${track.title}`);
+      const url = track.streamOverride || getDownloadUrl(track.id, `${track.artist} - ${track.title}`, `${track.artist} ${track.title}`);
       if (!url) throw new Error("No stream");
       const res = await fetch(url, { headers: track.streamOverride ? undefined : getMusicApiHeaders() });
       if (!res.ok || !res.body) throw new Error("Fetch failed");

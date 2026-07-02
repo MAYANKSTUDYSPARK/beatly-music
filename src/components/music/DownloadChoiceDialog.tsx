@@ -33,7 +33,7 @@ export function DownloadChoiceDialog({ track, open, onOpenChange }: Props) {
     setGalleryLoading(true);
     toast("Preparing download…");
     try {
-      const source = track.streamOverride || getDownloadUrl(track.id, `${track.artist} - ${track.title}`);
+      const source = track.streamOverride || getDownloadUrl(track.id, `${track.artist} - ${track.title}`, `${track.artist} ${track.title}`);
       const res = await fetch(source, { headers: track.streamOverride ? undefined : getMusicApiHeaders() });
       if (!res.ok) throw new Error("Download failed");
       const blob = await res.blob();
