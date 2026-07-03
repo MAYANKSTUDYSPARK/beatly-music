@@ -36,8 +36,8 @@ export default defineConfig(() => ({
             },
           },
           {
-            urlPattern: ({ url, request }) =>
-              url.origin === self.location.origin && ["script", "style", "font", "image"].includes(request.destination),
+            urlPattern: ({ sameOrigin, request }) =>
+              sameOrigin && ["script", "style", "font", "image"].includes(request.destination),
             handler: "CacheFirst",
             options: {
               cacheName: "beatly-assets",
