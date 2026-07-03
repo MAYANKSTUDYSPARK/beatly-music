@@ -367,28 +367,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     youtubePlayerRef.current?.stopVideo?.();
     setYoutubeState(null);
     setIsLoading(true);
-    try {
-      const res = await fetch(fallbackUrl);
-      if (!res.ok) throw new Error("fallback stream failed");
-      const blob = await res.blob();
-      if (blob.size < 1024) throw new Error("empty fallback stream");
-      if (fallbackObjectUrlRef.current) URL.revokeObjectURL(fallbackObjectUrlRef.current);
-      const objectUrl = URL.createObjectURL(blob);
-      fallbackObjectUrlRef.current = objectUrl;
-      setStreamUrl(objectUrl);
-      setDuration(current.duration || 0);
-      setIsPlaying(true);
-    } catch {
-      setIsPlaying(false);
-      pushNotification({
-        title: "Playback issue",
-        body: "This track is restricted. Try another result.",
-        image: current.thumbnail,
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [current, pushNotification]);
+    // Feed the URL directly to the <audio> element so playback starts as soon as
+    // the first bytes arrive, instead of waiting for the full blob to download.
+    setStreamUrl(fallbackUrl);
+    setDuration(current.duration || 0);
+    setIsPlaying(true);
+    setIsLoading(false);
+  }, [current]);
+
 
   // Official YouTube iframe fallback for songs. This keeps playback working even
   // when public audio stream proxies return LOGIN_REQUIRED/403/502.
@@ -444,7 +430,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       if (!cancelled && isPlayingRef.current && state !== 1 && position < 0.5) {
         switchToAudioFallback();
       }
-    }, 6500);
+    }, 4000);
+
     return () => {
       cancelled = true;
       window.clearTimeout(watchdog);
