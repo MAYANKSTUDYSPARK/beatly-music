@@ -30,7 +30,7 @@ function parseLrc(lrc: string): LyricLine[] {
 }
 
 export function Lyrics() {
-  const { current, currentTime } = usePlayer();
+  const { current, currentTime, playbackRate } = usePlayer();
   const [synced, setSynced] = useState<LyricLine[] | null>(null);
   const [plain, setPlain] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -113,16 +113,17 @@ export function Lyrics() {
   useEffect(() => {
     if (!synced) return;
     let idx = -1;
+    const lead = playbackRate > 1.05 ? 0.45 : 0.85;
     for (let i = 0; i < synced.length; i++) {
-      if (synced[i].time <= currentTime + 0.3) idx = i;
+      if (synced[i].time <= currentTime + lead) idx = i;
       else break;
     }
     if (idx !== activeIdx) setActiveIdx(idx);
-  }, [currentTime, synced, activeIdx]);
+  }, [currentTime, synced, activeIdx, playbackRate]);
 
   useEffect(() => {
     if (activeRef.current && containerRef.current) {
-      activeRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      activeRef.current.scrollIntoView({ behavior: "auto", block: "center" });
     }
   }, [activeIdx]);
 

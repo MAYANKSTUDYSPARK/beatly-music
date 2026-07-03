@@ -150,11 +150,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       consecutiveFailuresRef.current = 0;
       return;
     }
-    // Songs use the official YouTube iframe as the instant playback path. The audio
-    // extraction API is still warmed in the background for downloads, but playback
-    // must never fail just because public stream proxies are blocked.
+    // Start songs through the backend's progressive stream immediately. The
+    // backend can fall back between providers without blocking the UI first.
+    const query = `${current.artist} ${current.title}`;
+    const immediateUrl = getInlineStreamUrl(current.id, query);
+    audioFallbackRef.current = immediateUrl;
+    setStreamUrl(immediateUrl);
+    setDuration(current.duration || 0);
     setIsLoading(false);
-    setYoutubeState({ videoId: current.id, src: youtubeEmbedUrl(current.id) });
     consecutiveFailuresRef.current = 0;
     getStreamUrl(current.id).then((url) => {
       if (cancelled || loadingIdRef.current !== current.id) return;
@@ -356,24 +359,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     handleEndedRef.current = handleEnded;
   }, [handleEnded]);
 
-  const switchToAudioFallback = useCallback(async () => {
+  const switchToYoutubeFallback = useCallback(() => {
     if (!current || current.streamOverride) return;
-    const fallbackUrl = getInlineStreamUrl(
-      current.id,
-      `${current.artist} ${current.title}`
-    );
-    if (audioFallbackRef.current === fallbackUrl) return;
-    audioFallbackRef.current = fallbackUrl;
-    youtubePlayerRef.current?.stopVideo?.();
-    setYoutubeState(null);
+    if (youtubeState?.videoId === current.id) return;
+    audioRef.current?.pause();
+    setStreamUrl(null);
     setIsLoading(true);
-    // Feed the URL directly to the <audio> element so playback starts as soon as
-    // the first bytes arrive, instead of waiting for the full blob to download.
-    setStreamUrl(fallbackUrl);
     setDuration(current.duration || 0);
     setIsPlaying(true);
-    setIsLoading(false);
-  }, [current]);
+    setYoutubeState({ videoId: current.id, src: youtubeEmbedUrl(current.id) });
+  }, [current, youtubeState?.videoId]);
 
 
   // Official YouTube iframe fallback for songs. This keeps playback working even
@@ -416,19 +411,25 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             if (event.data === 3) setIsLoading(true);
           },
           onError: () => {
-            switchToAudioFallback();
+            setIsLoading(false);
+            setIsPlaying(false);
+            pushNotification({
+              title: "Playback paused",
+              body: "This song source is blocked. Try another song.",
+              image: current?.thumbnail,
+            });
           },
         },
       });
     }).catch(() => {
-      switchToAudioFallback();
+      setIsLoading(false);
     });
     const watchdog = window.setTimeout(() => {
       const player = youtubePlayerRef.current;
       const state = player?.getPlayerState?.();
       const position = player?.getCurrentTime?.() || 0;
       if (!cancelled && isPlayingRef.current && state !== 1 && position < 0.5) {
-        switchToAudioFallback();
+        setIsLoading(false);
       }
     }, 4000);
 
@@ -436,7 +437,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       window.clearTimeout(watchdog);
     };
-  }, [youtubeState?.videoId, youtubeState?.src, switchToAudioFallback]);
+  }, [youtubeState?.videoId, youtubeState?.src, pushNotification, current]);
 
   useEffect(() => {
     if (!youtubeState) return;
@@ -519,6 +520,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       a.play().catch(() => undefined);
       return;
     }
+    if (current && !current.streamOverride) {
+      switchToYoutubeFallback();
+      return;
+    }
     setIsLoading(false);
     setIsPlaying(false);
     pushNotification({
@@ -526,7 +531,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       body: "Network issue detected. Tap play to retry the same song.",
       image: current?.thumbnail,
     });
-  }, [current, streamUrl, pushNotification]);
+  }, [current, streamUrl, pushNotification, switchToYoutubeFallback]);
 
   const handleWaiting = useCallback(() => {
     const id = current?.id || "";
@@ -566,7 +571,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         onTimeUpdate={(e) => setCurrentTime((e.currentTarget as HTMLAudioElement).currentTime)}
         onLoadedMetadata={(e) => {
           const a = e.currentTarget as HTMLAudioElement;
-          setDuration(a.duration || 0);
+          const metadataDuration = Number.isFinite(a.duration) && a.duration > 0 ? a.duration : 0;
+          setDuration(metadataDuration || current?.duration || 0);
           a.volume = volume / 100;
           a.playbackRate = playbackRate;
         }}
