@@ -10,6 +10,7 @@ import { DownloadsProvider } from "@/contexts/DownloadsContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { RecentTracker } from "@/components/player/RecentTracker";
 import { InstallPrompt } from "@/components/InstallPrompt";
+import { OfflineGate } from "@/components/OfflineGate";
 import Home from "./pages/Home";
 import Search from "./pages/Search";
 import Library from "./pages/Library";
@@ -35,6 +36,7 @@ const App = () => (
               <PlayerProvider>
                 <RecentTracker />
                 <InstallPrompt />
+                <OfflineGate />
                 <Routes>
                   <Route element={<AppLayout />}>
                     <Route path="/" element={<Home />} />
