@@ -474,8 +474,9 @@ Deno.serve(async (req) => {
     }
     if (sub === "stream") {
       const id = url.searchParams.get("id") ?? "";
+      const query = url.searchParams.get("q") ?? "";
       if (!id) return err("id required", 400);
-      const stream = await getStream(id);
+      const stream = (query ? await getSaavnDownload(query) : null) ?? await getStream(id);
       // Always return 200 — null url signals "unavailable" without a noisy 404.
       return json({ url: stream ? streamApiUrl(req, id) : null, available: !!stream, proxied: true });
     }
@@ -483,7 +484,7 @@ Deno.serve(async (req) => {
       const id = url.searchParams.get("id") ?? "";
       const query = url.searchParams.get("q") ?? "";
       if (!id) return err("id required", 400);
-      const stream = await getStream(id) ?? await getSaavnDownload(query);
+      const stream = (query ? await getSaavnDownload(query) : null) ?? await getStream(id);
       if (!stream) return err("Stream unavailable for this track", 404);
       const upstream = await fetch(stream.url, {
         headers: {
@@ -508,7 +509,7 @@ Deno.serve(async (req) => {
       const name = safeFileName(url.searchParams.get("name") ?? `Beatly-${id}`);
       const query = url.searchParams.get("q") ?? name;
       if (!id) return err("id required", 400);
-      const stream = await getStream(id) ?? await getSaavnDownload(query);
+      const stream = (query ? await getSaavnDownload(query) : null) ?? await getStream(id);
       if (!stream) return err("Download unavailable for this track", 404);
       const upstream = await fetch(stream.url, {
         headers: {
