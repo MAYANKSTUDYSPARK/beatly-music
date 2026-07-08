@@ -1,4 +1,4 @@
-// Beatly music API proxy — uses YouTube Music's public InnerTube API (free, no key, unlimited).
+// BeatVerse music API proxy — uses YouTube Music's public InnerTube API (free, no key, unlimited).
 // Routes:
 //   GET  /music-api/search?q=...&type=songs|artists|albums
 //   GET  /music-api/trending?region=IN
@@ -30,7 +30,7 @@ const json = (data: unknown, status = 200) =>
 const err = (msg: string, status = 500) => json({ error: msg }, status);
 
 const safeFileName = (value: string) =>
-  value.replace(/[\\/\?%\*:|"<>]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120) || "beatly-track";
+  value.replace(/[\\/\?%\*:|"<>]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120) || "beatverse-track";
 
 interface Track {
   id: string;
@@ -486,17 +486,19 @@ Deno.serve(async (req) => {
       if (!id) return err("id required", 400);
       const stream = (query ? await getSaavnDownload(query) : null) ?? await getStream(id);
       if (!stream) return err("Stream unavailable for this track", 404);
+      const requestedRange = req.headers.get("range") || "bytes=0-";
       const upstream = await fetch(stream.url, {
         headers: {
           "User-Agent": "Mozilla/5.0",
           Accept: "audio/*,video/mp4,*/*;q=0.8",
-          Range: "bytes=0-",
+          Range: requestedRange,
         },
       });
       if (!upstream.ok && upstream.status !== 206) return err("Stream source failed", 502);
       const headers = new Headers(corsHeaders);
       headers.set("Content-Type", upstream.headers.get("content-type") || stream.mimeType || "audio/mp4");
       headers.set("Accept-Ranges", upstream.headers.get("accept-ranges") || "bytes");
+      headers.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type");
       headers.set("Cache-Control", "public, max-age=300");
       for (const h of ["content-length", "content-range"]) {
         const value = upstream.headers.get(h);
@@ -506,7 +508,7 @@ Deno.serve(async (req) => {
     }
     if (sub === "download") {
       const id = url.searchParams.get("id") ?? "";
-      const name = safeFileName(url.searchParams.get("name") ?? `Beatly-${id}`);
+      const name = safeFileName(url.searchParams.get("name") ?? `BeatVerse-${id}`);
       const query = url.searchParams.get("q") ?? name;
       if (!id) return err("id required", 400);
       const stream = (query ? await getSaavnDownload(query) : null) ?? await getStream(id);
@@ -524,6 +526,7 @@ Deno.serve(async (req) => {
       headers.set("Content-Type", contentType);
       headers.set("Content-Disposition", `attachment; filename="${name}.${contentType.includes("mp4") ? "mp4" : "m4a"}"`);
       headers.set("Accept-Ranges", upstream.headers.get("accept-ranges") || "bytes");
+      headers.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type, Content-Disposition");
       headers.set("Cache-Control", "private, max-age=300");
       for (const h of ["content-length", "content-range"]) {
         const value = upstream.headers.get(h);

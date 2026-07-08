@@ -36,7 +36,7 @@ export function InstallPrompt() {
             <Smartphone className="h-6 w-6 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-base font-extrabold text-white">Install Beatly App 🎵</div>
+            <div className="text-base font-extrabold text-white">Install BeatVerse App 🎵</div>
             <div className="mt-0.5 text-xs text-white/85">
               Free music + podcasts · offline downloads · no ads. One tap to install.
             </div>

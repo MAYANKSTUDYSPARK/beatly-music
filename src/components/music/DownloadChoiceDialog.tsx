@@ -72,7 +72,7 @@ export function DownloadChoiceDialog({ track, open, onOpenChange }: Props) {
             {appProgress !== undefined ? <Loader2 className="h-5 w-5 animate-spin" /> : <WifiOff className="h-5 w-5" />}
             <span className="text-left">
               <span className="block font-semibold">Save in app</span>
-              <span className="block text-xs opacity-80">{saved ? "Already saved offline" : appProgress !== undefined ? `${appProgress}% saved` : "Works offline inside Beatly"}</span>
+              <span className="block text-xs opacity-80">{saved ? "Already saved offline" : appProgress !== undefined ? `${appProgress}% saved` : "Works offline inside BeatVerse"}</span>
             </span>
           </Button>
           <Button variant="secondary" className="h-14 justify-start gap-3" onClick={downloadToGallery} disabled={galleryLoading}>

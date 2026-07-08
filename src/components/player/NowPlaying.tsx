@@ -50,7 +50,7 @@ export function NowPlaying({ onClose }: Props) {
           <ChevronDown className="h-6 w-6" />
         </Button>
         <div className="text-center">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Playing from Beatly</div>
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Playing from BeatVerse</div>
           <div className="text-sm font-semibold truncate max-w-[200px]">{current.artist}</div>
         </div>
         <div className="flex items-center gap-0.5">

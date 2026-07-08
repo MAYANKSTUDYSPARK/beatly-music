@@ -18,10 +18,10 @@ export function TopBar() {
       <button
         onClick={() => navigate("/")}
         className="flex items-center gap-2 transition-smooth hover:opacity-80"
-        aria-label="Beatly home"
+        aria-label="BeatVerse home"
       >
-        <img src={logo} alt="Beatly" width={32} height={32} className="h-8 w-8" loading="lazy" />
-        <span className="text-xl font-extrabold tracking-tight text-gradient-brand">Beatly</span>
+        <img src={logo} alt="BeatVerse" width={32} height={32} className="h-8 w-8" loading="lazy" />
+        <span className="text-xl font-extrabold tracking-tight text-gradient-brand">BeatVerse</span>
       </button>
 
       <div className="flex items-center gap-1 sm:gap-2">
