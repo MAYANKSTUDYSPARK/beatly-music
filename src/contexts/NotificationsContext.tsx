@@ -94,13 +94,13 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const clear = useCallback(() => setNotifications([]), []);
 
   const requestSystemPermission = useCallback(async () => {
-    const nativeShown = await showNativeNotification("Beatly is ready 🎧", "Song updates, play controls and music reminders are enabled.");
+    const nativeShown = await showNativeNotification("BeatVerse is ready 🎧", "Song updates, play controls and music reminders are enabled.");
     try {
       const { Capacitor } = await import("@capacitor/core");
       if (Capacitor.isNativePlatform()) {
         const { LocalNotifications } = await import("@capacitor/local-notifications");
         await LocalNotifications.requestPermissions();
-        toast.success("Beatly notifications enabled");
+        toast.success("BeatVerse notifications enabled");
         return;
       }
     } catch {
@@ -110,10 +110,10 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     const result = await Notification.requestPermission();
     setSystemPermission(result);
     if (result === "granted") {
-      toast.success("Beatly notifications enabled");
+      toast.success("BeatVerse notifications enabled");
       if (nativeShown) return;
       try {
-        new Notification("Beatly is ready 🎧", {
+        new Notification("BeatVerse is ready 🎧", {
           body: "Song updates, play controls and music reminders are enabled.",
           icon: "/icon-512.png",
           silent: true,
@@ -130,7 +130,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       const last = Number(localStorage.getItem(HOURLY_REMINDER_KEY) || "0");
       if (Date.now() - last < 60 * 60 * 1000) return;
       localStorage.setItem(HOURLY_REMINDER_KEY, String(Date.now()));
-      const title = "Beatly Mix is waiting 🎶";
+      const title = "BeatVerse Mix is waiting 🎶";
       const body = "Free songs, trending playlists and podcasts are ready to play.";
       setNotifications((prev) => [{
         id: `${Date.now()}-hourly`, title, body, image: "/icon-512.png", timestamp: Date.now(), read: false,
@@ -154,7 +154,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     await installEvent.prompt();
     const { outcome } = await installEvent.userChoice;
     if (outcome === "accepted") {
-      toast.success("Beatly installed! 🎉");
+      toast.success("BeatVerse installed! 🎉");
       setInstallEvent(null);
     }
   }, [installEvent]);

@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { Track } from "@/lib/music-api";
 import { getStreamUrl, getRelated, getInlineStreamUrl } from "@/lib/music-api";
 import { useNotifications } from "./NotificationsContext";
+import { getNativeAudioPlayer, isNativePlayableSource, NATIVE_AUDIO_ID, supportsNativeAudio } from "@/lib/native-audio";
 
 type RepeatMode = "off" | "all" | "one";
 
@@ -95,6 +96,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [duration, setDuration] = useState(0);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [youtubeState, setYoutubeState] = useState<YouTubeState | null>(null);
+  const [nativeAudioEnabled, setNativeAudioEnabled] = useState(false);
   const [playbackRate, setPlaybackRateState] = useState<number>(() => {
     const rate = Number(localStorage.getItem("beatly:playback-rate") || "1");
     return Number.isFinite(rate) && rate >= 0.75 && rate <= 1.5 ? rate : 1;
@@ -118,8 +120,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const isPlayingRef = useRef(false);
   const audioFallbackRef = useRef<string | null>(null);
   const fallbackObjectUrlRef = useRef<string | null>(null);
+  const nativeListenersReadyRef = useRef(false);
 
   const current = index >= 0 && index < queue.length ? queue[index] : null;
+  const nativeAudioActive = nativeAudioEnabled && isNativePlayableSource(streamUrl);
+
+  useEffect(() => {
+    supportsNativeAudio().then(setNativeAudioEnabled).catch(() => setNativeAudioEnabled(false));
+  }, []);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
@@ -137,6 +145,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     errorRetryRef.current = { id: current.id, count: 0 };
     stallRetryRef.current = { id: current.id, count: 0, at: 0 };
     audioFallbackRef.current = null;
+    getNativeAudioPlayer().then((player) => {
+      player?.stop({ audioId: NATIVE_AUDIO_ID }).catch(() => undefined);
+    }).catch(() => undefined);
     if (fallbackObjectUrlRef.current) {
       URL.revokeObjectURL(fallbackObjectUrlRef.current);
       fallbackObjectUrlRef.current = null;
@@ -170,11 +181,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!current || lastNotifiedIdRef.current === current.id) return;
     lastNotifiedIdRef.current = current.id;
-    pushNotification({
-      title: `Now playing: ${current.title}`,
-      body: current.artist,
-      image: current.thumbnail,
-    });
   }, [current, pushNotification]);
 
   // Auto-extend queue with related tracks
@@ -219,6 +225,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const togglePlay = useCallback(() => {
+    if (nativeAudioActive) {
+      getNativeAudioPlayer().then((player) => {
+        if (!player) return;
+        if (isPlayingRef.current) {
+          player.pause({ audioId: NATIVE_AUDIO_ID }).catch(() => undefined);
+          setIsPlaying(false);
+        } else {
+          player.play({ audioId: NATIVE_AUDIO_ID }).catch(() => undefined);
+          setIsPlaying(true);
+        }
+      }).catch(() => undefined);
+      return;
+    }
     if (youtubeState && youtubePlayerRef.current) {
       const state = youtubePlayerRef.current.getPlayerState?.();
       if (state === 1) youtubePlayerRef.current.pauseVideo();
@@ -229,7 +248,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (!a) return;
     if (a.paused) a.play().catch(() => undefined);
     else a.pause();
-  }, [youtubeState]);
+  }, [youtubeState, nativeAudioActive]);
 
   const next = useCallback(() => {
     if (!queue.length) return;
@@ -254,6 +273,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [queue.length, currentTime, repeat]);
 
   const seekTo = useCallback((fraction: number) => {
+    if (nativeAudioActive && duration) {
+      const timeInSeconds = fraction * duration;
+      setCurrentTime(timeInSeconds);
+      getNativeAudioPlayer().then((player) => {
+        player?.seek({ audioId: NATIVE_AUDIO_ID, timeInSeconds }).catch(() => undefined);
+      }).catch(() => undefined);
+      return;
+    }
     if (youtubeState && youtubePlayerRef.current && duration) {
       youtubePlayerRef.current.seekTo(fraction * duration, true);
       return;
@@ -261,14 +288,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const a = audioRef.current;
     if (!a || !duration) return;
     a.currentTime = fraction * duration;
-  }, [duration, youtubeState]);
+  }, [duration, youtubeState, nativeAudioActive]);
 
   const setVolume = useCallback((v: number) => {
     setVolumeState(v);
     localStorage.setItem("beatly:volume", String(v));
     if (audioRef.current) audioRef.current.volume = v / 100;
     youtubePlayerRef.current?.setVolume(v);
-  }, []);
+    if (nativeAudioActive) {
+      getNativeAudioPlayer().then((player) => {
+        player?.setVolume({ audioId: NATIVE_AUDIO_ID, volume: v / 100 }).catch(() => undefined);
+      }).catch(() => undefined);
+    }
+  }, [nativeAudioActive]);
 
   const setPlaybackRate = useCallback((rate: number) => {
     const safeRate = Math.min(1.5, Math.max(0.75, rate));
@@ -276,7 +308,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("beatly:playback-rate", String(safeRate));
     if (audioRef.current) audioRef.current.playbackRate = safeRate;
     youtubePlayerRef.current?.setPlaybackRate?.(safeRate);
-  }, []);
+    if (nativeAudioActive) {
+      getNativeAudioPlayer().then((player) => {
+        player?.setRate({ audioId: NATIVE_AUDIO_ID, rate: safeRate }).catch(() => undefined);
+      }).catch(() => undefined);
+    }
+  }, [nativeAudioActive]);
 
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
   const cycleRepeat = useCallback(() => setRepeat((r) => r === "off" ? "all" : r === "all" ? "one" : "off"), []);
@@ -307,11 +344,22 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       a.currentTime = 0;
     }
     youtubePlayerRef.current?.stopVideo?.();
+    getNativeAudioPlayer().then((player) => {
+      player?.stop({ audioId: NATIVE_AUDIO_ID }).catch(() => undefined);
+    }).catch(() => undefined);
     setCurrentTime(0);
     setIsPlaying(false);
   }, []);
 
   const skipBy = useCallback((seconds: number) => {
+    if (nativeAudioActive) {
+      const nextTime = Math.min(Math.max(currentTime + seconds, 0), duration || Number.MAX_SAFE_INTEGER);
+      setCurrentTime(nextTime);
+      getNativeAudioPlayer().then((player) => {
+        player?.seek({ audioId: NATIVE_AUDIO_ID, timeInSeconds: nextTime }).catch(() => undefined);
+      }).catch(() => undefined);
+      return;
+    }
     if (youtubeState && youtubePlayerRef.current) {
       const nextTime = Math.min(Math.max((youtubePlayerRef.current.getCurrentTime?.() || 0) + seconds, 0), duration || Number.MAX_SAFE_INTEGER);
       youtubePlayerRef.current.seekTo(nextTime, true);
@@ -323,7 +371,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const nextTime = Math.min(Math.max(a.currentTime + seconds, 0), duration || Number.MAX_SAFE_INTEGER);
     a.currentTime = nextTime;
     setCurrentTime(nextTime);
-  }, [duration, youtubeState]);
+  }, [duration, youtubeState, nativeAudioActive, currentTime]);
 
   const handleEnded = useCallback(() => {
     if (youtubeState) {
@@ -360,7 +408,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [handleEnded]);
 
   const switchToYoutubeFallback = useCallback(() => {
-    if (!current || current.streamOverride) return;
+    if (!current || current.streamOverride || nativeAudioActive) return;
     if (youtubeState?.videoId === current.id) return;
     audioRef.current?.pause();
     setStreamUrl(null);
@@ -368,7 +416,91 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setDuration(current.duration || 0);
     setIsPlaying(true);
     setYoutubeState({ videoId: current.id, src: youtubeEmbedUrl(current.id) });
-  }, [current, youtubeState?.videoId]);
+  }, [current, youtubeState?.videoId, nativeAudioActive]);
+
+  const ensureNativeAudioListeners = useCallback(async (player: Awaited<ReturnType<typeof getNativeAudioPlayer>>) => {
+    if (!player || nativeListenersReadyRef.current) return;
+    nativeListenersReadyRef.current = true;
+    await Promise.allSettled([
+      player.onAudioEnd({ audioId: NATIVE_AUDIO_ID }, () => handleEndedRef.current()),
+      player.onPlaybackStatusChange({ audioId: NATIVE_AUDIO_ID }, ({ status }) => {
+        setIsLoading(false);
+        setIsPlaying(status === "playing");
+      }),
+      player.onAudioReady({ audioId: NATIVE_AUDIO_ID }, async () => {
+        setIsLoading(false);
+        try {
+          const { duration: nativeDuration } = await player.getDuration({ audioId: NATIVE_AUDIO_ID });
+          if (nativeDuration) setDuration(nativeDuration);
+        } catch {
+          // ignore native metadata read failures
+        }
+        if (isPlayingRef.current) player.play({ audioId: NATIVE_AUDIO_ID }).catch(() => undefined);
+      }),
+    ]);
+  }, []);
+
+  useEffect(() => {
+    if (!current || !streamUrl || !nativeAudioActive) return;
+    let cancelled = false;
+    setIsLoading(true);
+    getNativeAudioPlayer().then(async (player) => {
+      if (!player || cancelled) return;
+      await ensureNativeAudioListeners(player);
+      await player.destroy({ audioId: NATIVE_AUDIO_ID }).catch(() => undefined);
+      await player.create({
+        audioId: NATIVE_AUDIO_ID,
+        audioSource: streamUrl,
+        friendlyTitle: current.title,
+        artistName: current.artist,
+        albumTitle: "BeatVerse",
+        artworkSource: current.thumbnail || "/icon-512.png",
+        useForNotification: true,
+        showSeekBackward: true,
+        showSeekForward: true,
+        seekBackwardTime: 10,
+        seekForwardTime: 10,
+      });
+      if (cancelled) return;
+      await player.initialize({ audioId: NATIVE_AUDIO_ID });
+      await player.setVolume({ audioId: NATIVE_AUDIO_ID, volume: volume / 100 }).catch(() => undefined);
+      await player.setRate({ audioId: NATIVE_AUDIO_ID, rate: playbackRate }).catch(() => undefined);
+      setIsLoading(false);
+      if (isPlayingRef.current) await player.play({ audioId: NATIVE_AUDIO_ID }).catch(() => undefined);
+    }).catch(() => {
+      if (!cancelled) {
+        setNativeAudioEnabled(false);
+        setIsLoading(false);
+        if (isPlayingRef.current) audioRef.current?.play().catch(() => undefined);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [current, streamUrl, nativeAudioActive, ensureNativeAudioListeners, volume, playbackRate]);
+
+  useEffect(() => {
+    if (!nativeAudioActive || !current) return;
+    const timer = window.setInterval(() => {
+      getNativeAudioPlayer().then(async (player) => {
+        if (!player) return;
+        const [time, nativeDuration] = await Promise.allSettled([
+          player.getCurrentTime({ audioId: NATIVE_AUDIO_ID }),
+          player.getDuration({ audioId: NATIVE_AUDIO_ID }),
+        ]);
+        if (time.status === "fulfilled") setCurrentTime(time.value.currentTime || 0);
+        if (nativeDuration.status === "fulfilled" && nativeDuration.value.duration) setDuration(nativeDuration.value.duration);
+      }).catch(() => undefined);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [nativeAudioActive, current]);
+
+  useEffect(() => {
+    if (!nativeAudioActive) return;
+    getNativeAudioPlayer().then((player) => {
+      if (!player) return;
+      if (isPlaying) player.play({ audioId: NATIVE_AUDIO_ID }).catch(() => undefined);
+      else player.pause({ audioId: NATIVE_AUDIO_ID }).catch(() => undefined);
+    }).catch(() => undefined);
+  }, [nativeAudioActive, isPlaying]);
 
 
   // Official YouTube iframe fallback for songs. This keeps playback working even
@@ -464,17 +596,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: current.title,
       artist: current.artist,
-      album: "Beatly",
+      album: "BeatVerse",
       artwork: [96, 192, 256, 384, 512].map((s) => ({
         src: current.thumbnail, sizes: `${s}x${s}`, type: "image/jpeg",
       })),
     });
     navigator.mediaSession.setActionHandler("play", () => {
-      if (youtubePlayerRef.current) youtubePlayerRef.current.playVideo();
+      if (nativeAudioActive) getNativeAudioPlayer().then((player) => player?.play({ audioId: NATIVE_AUDIO_ID })).catch(() => undefined);
+      else if (youtubePlayerRef.current) youtubePlayerRef.current.playVideo();
       else audioRef.current?.play();
     });
     navigator.mediaSession.setActionHandler("pause", () => {
-      if (youtubePlayerRef.current) youtubePlayerRef.current.pauseVideo();
+      if (nativeAudioActive) getNativeAudioPlayer().then((player) => player?.pause({ audioId: NATIVE_AUDIO_ID })).catch(() => undefined);
+      else if (youtubePlayerRef.current) youtubePlayerRef.current.pauseVideo();
       else audioRef.current?.pause();
     });
     navigator.mediaSession.setActionHandler("stop", stop);
@@ -487,7 +621,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       if (youtubePlayerRef.current) youtubePlayerRef.current.seekTo(d.seekTime, true);
       else if (audioRef.current) audioRef.current.currentTime = d.seekTime;
     });
-  }, [current, next, prev, stop, skipBy]);
+  }, [current, next, prev, stop, skipBy, nativeAudioActive]);
 
   // Keep lock-screen progress synced
   useEffect(() => {
@@ -563,7 +697,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       {children}
       <audio
         ref={audioRef}
-        src={streamUrl ?? undefined}
+        src={nativeAudioActive ? undefined : streamUrl ?? undefined}
         autoPlay={isPlaying}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
@@ -587,7 +721,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           <iframe
             key={youtubeState.videoId}
             ref={youtubeIframeRef}
-            title="Beatly backup player"
+            title="BeatVerse backup player"
             src={youtubeState.src}
             allow="autoplay; encrypted-media"
             className="h-px w-px"
